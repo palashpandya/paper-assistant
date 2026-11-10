@@ -9,6 +9,8 @@ import { WebSocketServer, type WebSocket } from 'ws';
 import { spawn } from 'node:child_process';
 import { Agents } from './agent.ts';
 import { Annotations, type NewThread } from './annotations.ts';
+import { Chats } from './chats.ts';
+import { cliSessions, cliTranscript, sessionTitle } from './cliHistory.ts';
 import { Compiler } from './compiler.ts';
 import { Project, isAssetFile, isSkippedDir, isTextFile } from './project.ts';
 import { forward, reverse } from './synctex.ts';
@@ -61,6 +63,7 @@ const compiler = new Compiler(
     void broadcastAnnotations();
     // Handle file events that arrived mid-build, now that we know which files the build itself wrote.
     for (const [event, abs] of deferred.splice(0)) onFileEvent(event, abs);
+    for (const fn of afterBuild.splice(0)) fn();
   },
 );
 
@@ -76,13 +79,37 @@ function forgetGenerated() {
 let compileTimer: NodeJS.Timeout | null = null;
 const scheduleCompile = () => {
   if (compileTimer) clearTimeout(compileTimer);
-  compileTimer = setTimeout(() => void compiler.compile(), 400);
+  compileTimer = setTimeout(() => {
+    compileTimer = null;
+    void compiler.compile();
+  }, 400);
 };
+const afterBuild: (() => void)[] = [];
 
-const agents = new Agents(project.root, (event) => broadcast({ type: 'agent', event }));
+// The conversation is recorded here as well as shown in the browser, so it survives reloads and restarts.
+const chats = new Chats(project.root);
+const agents = new Agents(project.root, (event) => {
+  chats.onEvent(event, agents.sessionIds());
+  broadcast({ type: 'agent', event });
+});
+agents.restore(chats.current.sessions);
 
 const annotations = new Annotations(project, () => compiler.pdfPath());
 const broadcastAnnotations = async () => broadcast({ type: 'annotations', threads: await annotations.views() });
+
+/**
+ * Comments an agent left for the PDF during its turn. They are placed with SyncTeX,
+ * so wait for the build of the agent's last edits before reading them.
+ */
+function collectAgentNotes(agent: string) {
+  const collect = async () => {
+    if (await annotations.collectAgentNotes(agent).catch(() => 0)) await broadcastAnnotations();
+  };
+  setTimeout(() => {
+    if (compiler.busy || compileTimer) afterBuild.push(() => void collect());
+    else void collect();
+  }, 700);
+}
 
 // ---------- file watching ----------
 
@@ -293,14 +320,21 @@ app.post('/api/agent/send', (req, res) => {
   // Either a chat message, or a list of PDF comments to work through.
   const threads: number[] = Array.isArray(req.body?.threads) ? req.body.threads.map(Number) : [];
   if (threads.length) {
-    agents.send(name, annotations.prompt(threads), (reply) => {
+    const prompt = annotations.prompt(threads);
+    chats.addUser(threads.length === 1 ? `Address comment #${threads[0]}.` : `Address comments ${threads.map((id) => `#${id}`).join(', ')}.`, []);
+    agents.send(name, prompt, (reply) => {
       if (reply) annotations.applyReply(threads, reply, agents.label(name));
       void broadcastAnnotations();
+      collectAgentNotes(agents.label(name));
     });
   } else {
     const prompt = req.body?.prompt;
     if (typeof prompt !== 'string' || !prompt.trim()) throw new Error('Missing prompt');
-    agents.send(name, prompt);
+    // `display` is the message as the user typed it; the prompt also carries the editor context.
+    const display = typeof req.body?.display === 'string' && req.body.display.trim() ? req.body.display : prompt;
+    const attached = Array.isArray(req.body?.attached) ? req.body.attached.filter((a: unknown) => typeof a === 'string') : [];
+    chats.addUser(display, attached);
+    agents.send(name, prompt, () => collectAgentNotes(agents.label(name)));
   }
   res.json({ ok: true });
 });
@@ -312,6 +346,80 @@ app.post('/api/agent/stop', (_req, res) => {
 
 app.post('/api/agent/reset', (_req, res) => {
   agents.reset();
+  chats.start();
+  res.json({ ok: true });
+});
+
+// ----- saved conversations -----
+
+app.get('/api/chat', (_req, res) => {
+  res.json({ id: chats.current.id, messages: chats.current.messages });
+});
+
+// Conversations saved by the app, plus sessions the CLIs have for this folder that the app has not opened yet
+// (for example Claude Code run in a terminal here). Those get the id "cli:<agent>:<session id>".
+// The list is served a page at a time (`offset`, `limit`; `next` is the offset of the following page or null),
+// because a session's title has to be read out of its file and there can be hundreds of sessions.
+// `agent` narrows it to one agent's conversations; one held with both agents counts for each.
+app.get('/api/chats', (req, res) => {
+  const known = chats.knownSessions();
+  const only = typeof req.query.agent === 'string' && agents.has(req.query.agent) ? req.query.agent : null;
+  const all = [
+    ...chats
+      .list()
+      .filter((c) => !only || c.agents.includes(only))
+      .map((c) => ({ updatedAt: c.updatedAt, saved: c, cli: null })),
+    ...cliSessions(project.root)
+      .filter((s) => !known.has(s.sessionId) && (!only || s.agent === only))
+      .map((s) => ({ updatedAt: s.updatedAt, saved: null, cli: s })),
+  ].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 20));
+  let i = Math.max(0, Number(req.query.offset) || 0);
+  const page = [];
+  for (; i < all.length && page.length < limit; i++) {
+    const { saved, cli, updatedAt } = all[i];
+    if (saved) page.push({ id: saved.id, title: saved.title, updatedAt, source: 'app' });
+    else if (cli) {
+      const title = sessionTitle(cli);
+      if (title) page.push({ id: `cli:${cli.agent}:${cli.sessionId}`, title, updatedAt, source: cli.agent, label: agents.label(cli.agent), folder: cli.folder });
+    }
+  }
+  res.json({ current: chats.current.id, chats: page, next: i < all.length ? i : null });
+});
+
+app.post('/api/chats/:id/open', (req, res) => {
+  if (agents.busy) {
+    res.status(409).json({ error: 'The agent is still working.' });
+    return;
+  }
+  const cli = /^cli:(claude|codex):(.+)$/.exec(req.params.id);
+  let chat;
+  if (cli) {
+    const session = cliSessions(project.root).find((s) => s.agent === cli[1] && s.sessionId === cli[2]);
+    if (!session) throw new Error('No such session');
+    chat = chats.adopt(session.agent, session.sessionId, sessionTitle(session), session.updatedAt, cliTranscript(project.root, session));
+  } else {
+    chat = chats.open(req.params.id);
+  }
+  agents.restore(chat.sessions);
+  res.json({ id: chat.id, messages: chat.messages, agent: Object.keys(chat.sessions).find((a) => chat.sessions[a]) ?? null });
+});
+
+// Removes a conversation from the list. The CLIs' own session files are never touched.
+app.delete('/api/chats/:id', (req, res) => {
+  const cli = /^cli:(?:claude|codex):(.+)$/.exec(req.params.id);
+  if (cli) {
+    chats.hide(cli[1]);
+    res.json({ ok: true });
+    return;
+  }
+  if (agents.busy && req.params.id === chats.current.id) {
+    res.status(409).json({ error: 'The agent is still working.' });
+    return;
+  }
+  const wasCurrent = req.params.id === chats.current.id;
+  chats.remove(req.params.id);
+  if (wasCurrent) agents.reset();
   res.json({ ok: true });
 });
 

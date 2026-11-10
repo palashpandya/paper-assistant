@@ -1,17 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
+import type { ChatMessage } from './api';
 import { Markdown, hasMath } from './Markdown';
 
-export type Part = { type: 'text'; text: string } | { type: 'tool'; name: string; detail: string };
-
-export interface Message {
-  role: 'user' | 'assistant';
-  /** Which agent wrote an assistant message. */
-  agent?: string;
-  parts: Part[];
-  /** Labels of the context that was attached to a user message. */
-  attached?: string[];
-  error?: string;
-}
+export type Message = ChatMessage;
+export type Part = Message['parts'][number];
 
 export interface ContextChip {
   id: number;

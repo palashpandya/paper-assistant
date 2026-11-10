@@ -282,6 +282,11 @@
   background: var(--active-line);
 }
 
+/* The active line sits above the selection layer and its colour is opaque, so it would hide the selection on that line. */
+.editor-host .cm-editor.cm-has-selection .cm-activeLine {
+  background: transparent;
+}
+
 .editor-host .cm-editor .cm-gutters {
   background: var(--panel-2);
   border-right: 1px solid var(--border);

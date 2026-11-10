@@ -53,6 +53,8 @@ export interface ThreadMessage {
 export interface Thread {
   id: number;
   kind: 'comment' | 'drawing';
+  /** Absent on older threads, which are the user's. */
+  author?: 'user' | 'agent';
   page: number;
   rects: Rect[];
   /** Each stroke is a flat list x0, y0, x1, y1, ... */
@@ -83,6 +85,30 @@ export interface AgentInfo {
   name: string;
   label: string;
   available: boolean;
+}
+
+/** A saved agent conversation, as listed under History. */
+export interface ChatSummary {
+  id: string;
+  title: string;
+  updatedAt: string;
+  /** 'app' for conversations held here; otherwise the CLI whose own session this is, not opened in the app yet. */
+  source: 'app' | 'claude' | 'codex';
+  /** That CLI's display name. */
+  label?: string;
+  /** For a CLI session held in a folder around the paper's rather than in it: that folder's name. */
+  folder?: string;
+}
+
+/** One chat bubble; the server stores conversations in this shape (ChatMessage in server/chats.ts). */
+export interface ChatMessage {
+  role: 'user' | 'assistant';
+  /** Which agent wrote an assistant message. */
+  agent?: string;
+  parts: ({ type: 'text'; text: string } | { type: 'tool'; name: string; detail: string })[];
+  /** Labels of the context that was attached to a user message. */
+  attached?: string[];
+  error?: string;
 }
 
 export type ServerMsg =
@@ -135,7 +161,9 @@ export const api = {
     call<{ box: PdfBox | null }>(`/api/synctex/forward?${q(path)}&line=${line}`),
   reverse: (page: number, x: number, y: number) =>
     call<{ hit: { path: string; line: number } | null }>(`/api/synctex/reverse?page=${page}&x=${x}&y=${y}`),
-  send: (agent: string, prompt: string) => post('/api/agent/send', { agent, prompt }),
+  /** `display` and `attached` are what the chat shows for this message; `prompt` is what the agent receives. */
+  send: (agent: string, prompt: string, display: string, attached: string[]) =>
+    post('/api/agent/send', { agent, prompt, display, attached }),
   sendThreads: (agent: string, threads: number[]) => post('/api/agent/send', { agent, threads }),
   threads: () => call<{ threads: Thread[] }>('/api/annotations'),
   createThread: (thread: NewThread) =>
@@ -154,6 +182,16 @@ export const api = {
   deleteThread: (id: number) => call<{ ok: boolean }>(`/api/annotations/${id}`, { method: 'DELETE' }),
   stop: () => post('/api/agent/stop'),
   reset: () => post('/api/agent/reset'),
+  chat: () => call<{ id: string; messages: ChatMessage[] }>('/api/chat'),
+  /** One page of the History list; `next` is the offset to ask for after it, or null at the end. */
+  chats: (offset = 0, agent = 'all') =>
+    call<{ current: string; chats: ChatSummary[]; next: number | null }>(
+      `/api/chats?offset=${offset}&limit=20${agent === 'all' ? '' : `&agent=${encodeURIComponent(agent)}`}`,
+    ),
+  /** `agent` is the agent that conversation was held with. */
+  openChat: (id: string) =>
+    call<{ id: string; messages: ChatMessage[]; agent: string | null }>(`/api/chats/${encodeURIComponent(id)}/open`, { method: 'POST' }),
+  deleteChat: (id: string) => call<{ ok: boolean }>(`/api/chats/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 };
 
 /** Opens the live-update socket and keeps it open. Returns a function that closes it. */

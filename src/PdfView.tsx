@@ -31,6 +31,8 @@ interface Props {
   onThreadClick: (id: number) => void;
   /** Save a new comment or drawing; `send` hands it to the agent straight away. */
   onCreate: (thread: NewThread, send: boolean) => Promise<void>;
+  /** Move the PDF to its own browser tab. Absent when it is already there. */
+  onDetach?: () => void;
 }
 
 interface SelectionMenu extends PdfSelection {
@@ -84,7 +86,7 @@ const shapes = (rects: Rect[], strokes: number[][]) =>
     .join('');
 
 export const PdfView = forwardRef<PdfHandle, Props>(function PdfView(
-  { version, threads, activeThread, onReverse, onAsk, onThreadClick, onCreate },
+  { version, threads, activeThread, onReverse, onAsk, onThreadClick, onCreate, onDetach },
   ref,
 ) {
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -136,7 +138,7 @@ export const PdfView = forwardRef<PdfHandle, Props>(function PdfView(
         if (t.view.page !== page) continue;
         const b = boundsOf(t.rects, t.strokes);
         if (!b) continue;
-        const cls = ['thread', t.kind, t.id === st.activeThread && 'active', t.resolved && 'resolved', t.view.stale && 'stale']
+        const cls = ['thread', t.kind, t.author === 'agent' && 'agent', t.id === st.activeThread && 'active', t.resolved && 'resolved', t.view.stale && 'stale']
           .filter(Boolean)
           .join(' ');
         const px = Math.min(Number(el.dataset.w) - 7, b.x + b.w + 5);
@@ -553,6 +555,18 @@ export const PdfView = forwardRef<PdfHandle, Props>(function PdfView(
         <button className="btn small icon" onClick={() => setZoom((z) => Math.min(3, +(z + 0.1).toFixed(2)))} title="Zoom in">
           +
         </button>
+        {onDetach && (
+          <button
+            className="btn small icon"
+            onClick={onDetach}
+            title="Open the PDF in a separate tab"
+            aria-label="Open the PDF in a separate tab"
+          >
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden="true">
+              <path d="M5 2.5H2.5v7h7V7M7 1.5h3.5V5M10.5 1.5 5.5 6.5" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
+        )}
       </div>
       <div
         className={`pdf-scroll ${drawing ? 'drawing' : ''} ${night ? 'night' : ''}`}

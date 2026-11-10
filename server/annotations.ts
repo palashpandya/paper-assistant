@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { Project } from './project.ts';
-import { forward, reverse } from './synctex.ts';
+import { forward, forwardAll, reverse } from './synctex.ts';
 
 /** All coordinates are PDF points from the top-left of the page. */
 export interface Rect {
@@ -22,6 +22,8 @@ export interface ThreadMessage {
 export interface Thread {
   id: number;
   kind: 'comment' | 'drawing';
+  /** Who made it. Absent on threads saved before agents could annotate, which are the user's. */
+  author?: 'user' | 'agent';
   page: number;
   /** Highlighted text boxes (comments). */
   rects: Rect[];
@@ -61,7 +63,41 @@ export interface NewThread {
   image?: string;
 }
 
+/** One entry of the file an agent writes to put its own comments on the PDF. */
+interface AgentNote {
+  file: string;
+  line: number;
+  endLine?: number;
+  /** A few words from the first line, used to correct a line number that is slightly off. */
+  quote?: string;
+  text: string;
+  mark?: 'highlight' | 'box' | 'circle';
+}
+
 const DIR = '.paper-assistant';
+/** Where agents drop their notes; see INSTRUCTIONS in agent.ts, which describes this format to them. */
+export const AGENT_NOTES = `${DIR}/agent-notes.json`;
+
+/** A closed outline around a region, as one stroke. */
+function outline(b: Rect, shape: 'box' | 'circle'): number[] {
+  const pad = 3;
+  const x0 = b.x - pad;
+  const y0 = b.y - pad;
+  const x1 = b.x + b.w + pad;
+  const y1 = b.y + b.h + pad;
+  if (shape === 'box') return [x0, y0, x1, y0, x1, y1, x0, y1, x0, y0];
+  // Typeset lines are wide and flat, so a little extra on each side encloses the text without swallowing the page.
+  const cx = (x0 + x1) / 2;
+  const cy = (y0 + y1) / 2;
+  const rx = (x1 - x0) / 2 + 8;
+  const ry = (y1 - y0) / 2 + 5;
+  const points: number[] = [];
+  for (let i = 0; i <= 64; i++) {
+    const a = (i / 64) * 2 * Math.PI;
+    points.push(cx + rx * Math.cos(a), cy + ry * Math.sin(a));
+  }
+  return points;
+}
 
 function bounds(t: Pick<Thread, 'rects' | 'strokes'>): Rect {
   let x0 = Infinity;
@@ -145,6 +181,116 @@ export class Annotations {
     this.threads.push(thread);
     this.save();
     return thread;
+  }
+
+  /**
+   * Turns the notes file an agent left behind into threads, and removes the file.
+   * Agents know source lines, not PDF coordinates, so each note names lines and
+   * SyncTeX says where they are typeset. Returns how many threads were made.
+   */
+  async collectAgentNotes(agent: string): Promise<number> {
+    const file = path.join(this.project.root, AGENT_NOTES);
+    let raw: string;
+    try {
+      raw = fs.readFileSync(file, 'utf8');
+    } catch {
+      return 0;
+    }
+    fs.rmSync(file, { force: true });
+    let notes: unknown;
+    try {
+      notes = JSON.parse(raw);
+    } catch {
+      return 0;
+    }
+    if (!Array.isArray(notes)) notes = (notes as { comments?: unknown } | null)?.comments;
+    if (!Array.isArray(notes)) return 0;
+
+    let made = 0;
+    for (const note of notes.slice(0, 100) as Partial<AgentNote>[]) {
+      if (!note || typeof note.file !== 'string' || typeof note.text !== 'string' || !note.text.trim()) continue;
+      const rel = path.relative(this.project.root, path.resolve(this.project.root, note.file));
+      let lines: string[];
+      try {
+        lines = fs.readFileSync(this.project.abs(rel), 'utf8').split('\n');
+      } catch {
+        continue; // Not a file in this project.
+      }
+      let line = Math.min(lines.length, Math.max(1, Math.round(Number(note.line)) || 1));
+      let endLine = Math.min(lines.length, Math.max(line, Math.round(Number(note.endLine)) || line));
+      // Line numbers from an agent can be slightly off; the quote says which line was meant.
+      const quote = typeof note.quote === 'string' ? note.quote.trim() : '';
+      if (quote && !lines[line - 1].includes(quote)) {
+        for (let d = 1; d < lines.length; d++) {
+          const i = [line - 1 - d, line - 1 + d].find((j) => j >= 0 && j < lines.length && lines[j].includes(quote));
+          if (i !== undefined) {
+            endLine = Math.min(lines.length, endLine + i + 1 - line);
+            line = i + 1;
+            break;
+          }
+        }
+      }
+
+      const mark = note.mark === 'box' || note.mark === 'circle' ? note.mark : 'highlight';
+      const placed = await this.place(rel, line, endLine);
+      const source = lines.slice(line - 1, endLine).join(' ').replace(/\s+/g, ' ').trim();
+      const thread: Thread = {
+        id: this.next++,
+        kind: mark === 'highlight' ? 'comment' : 'drawing',
+        author: 'agent',
+        page: placed?.page ?? 1,
+        rects: placed && mark === 'highlight' ? placed.rects : [],
+        strokes: placed && mark !== 'highlight' ? [outline(bounds({ rects: placed.rects, strokes: [] }), mark)] : [],
+        quote: source.length > 240 ? `${source.slice(0, 239)}…` : source,
+        image: null,
+        anchor: {
+          path: rel,
+          line: placed?.line ?? line,
+          endLine: Math.max(endLine, placed?.line ?? line),
+          lineText: (lines[(placed?.line ?? line) - 1] ?? '').trim(),
+          box: placed?.box ?? { page: 1, x: 0, y: 0 },
+        },
+        messages: [{ author: 'agent', agent, text: note.text.trim(), at: new Date().toISOString() }],
+        resolved: false,
+        createdAt: new Date().toISOString(),
+      };
+      this.threads.push(thread);
+      made++;
+    }
+    if (made) this.save();
+    return made;
+  }
+
+  /** Where source lines are typeset: one rectangle per PDF line, on the page where they start. */
+  private async place(rel: string, line: number, endLine: number) {
+    const pdf = this.getPdf();
+    if (!pdf || !fs.existsSync(pdf)) return null;
+    const abs = this.project.abs(rel);
+    // Blank lines, comments and some commands leave no trace in the PDF; then use the nearest line that does.
+    const range = Array.from({ length: Math.min(endLine - line + 1, 200) }, (_, i) => line + i);
+    const nearby = [1, 2].flatMap((d) => [endLine + d, line - d]).filter((l) => l >= 1);
+    let anchorLine = 0;
+    let box = null;
+    for (const l of [...range, ...nearby]) {
+      box = await forward(pdf, abs, l);
+      if (box) {
+        anchorLine = l;
+        break;
+      }
+    }
+    if (!box) return null;
+    const page = box.page;
+    const rects: Rect[] = [];
+    for (const l of anchorLine >= line && anchorLine <= endLine ? range.filter((x) => x >= anchorLine) : [anchorLine]) {
+      const all = (await forwardAll(pdf, abs, l)).filter((b) => b.page === page);
+      // SyncTeX sometimes also reports the enclosing column or page; keep the line-sized boxes.
+      const small = all.filter((b) => b.height <= 40);
+      for (const b of small.length ? small : all.slice(0, 1)) {
+        const r = { x: b.x, y: b.y, w: b.width, h: b.height + 2 };
+        if (!rects.some((o) => Math.abs(o.x - r.x) < 0.5 && Math.abs(o.y - r.y) < 0.5 && Math.abs(o.w - r.w) < 0.5)) rects.push(r);
+      }
+    }
+    return { page, line: anchorLine, rects, box: { page, x: box.x, y: box.y } };
   }
 
   /** Asks SyncTeX which source lines the annotation covers. */
@@ -258,7 +404,9 @@ export class Annotations {
         ? `source ${t.anchor.path} ${t.anchor.line === t.anchor.endLine ? `line ${t.anchor.line}` : `lines ${t.anchor.line}-${t.anchor.endLine}`}`
         : 'source location unknown';
       const lines = [`Comment #${t.id} (PDF page ${t.page}, ${where})`];
-      if (t.kind === 'drawing') {
+      if (t.author === 'agent') {
+        lines.push(`This note was put on the PDF by an agent, not by the user. Source text it points at: "${t.quote}"`);
+      } else if (t.kind === 'drawing') {
         lines.push(
           t.image
             ? `The user drew on the PDF. Picture of the marked-up region (their marks are in red): ${t.image} — read this image before doing anything else. The source lines above are approximate.`
@@ -276,7 +424,7 @@ export class Annotations {
       return lines.join('\n');
     });
     return [
-      `Address the following review ${ids.length === 1 ? 'comment' : 'comments'} that the user left on the compiled PDF.`,
+      `Address the following review ${ids.length === 1 ? 'comment' : 'comments'} on the compiled PDF.`,
       ...blocks,
       'When you are done, finish with one line per comment in exactly this form:\n' +
         '#<number>: <what you changed, or your answer>\n' +

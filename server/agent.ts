@@ -15,7 +15,8 @@ const INSTRUCTIONS = `You are working inside Paper Assistant, a LaTeX editor. Th
 - The editor recompiles the PDF automatically after each change. Do not run LaTeX yourself. To check for compile errors, read the .log file next to the main .tex file after editing.
 - Make focused edits. Do not reformat or rewrite text the user did not ask about.
 - Keep chat replies short: say what you changed and where. The diff shows the details.
-- The chat renders Markdown and typesets math. Write math as $...$ or $$...$$, and put LaTeX source you want shown literally in backticks.`;
+- The chat renders Markdown and typesets math. Write math as $...$ or $$...$$, and put LaTeX source you want shown literally in backticks.
+- You can put your own comments on the PDF. Do this when the user asks for a review, for feedback or to point things out, or when a change needs their decision; do not use it to report edits you made. Write a JSON array to .paper-assistant/agent-notes.json with one object per comment: {"file": "<project-relative path of the source file>", "line": <first source line>, "endLine": <last source line, optional>, "quote": "<a few words copied exactly from the first line>", "text": "<the comment, Markdown allowed>", "mark": "highlight" | "box" | "circle"}. When your turn ends the editor marks where those source lines are typeset in the PDF, lists each comment under Comments for the user to reply to, and deletes the file. "highlight" (the default) shades the typeset lines; "box" and "circle" draw around them. You address the PDF through source lines only, and marks cover whole typeset lines, so give the shortest line range that covers what you mean. This file is only for new comments of your own; answer comments you were asked to address in the #<number> form.`;
 
 interface Turn {
   sessionId: string | null;
@@ -146,6 +147,17 @@ export class Agents {
 
   label(name: AgentName) {
     return BACKENDS[name].label;
+  }
+
+  /** The CLIs' session ids for the conversation in progress. */
+  sessionIds(): Record<string, string | null> {
+    return { ...this.sessions };
+  }
+
+  /** Continue a saved conversation: the next turn of each agent resumes the session it had there. */
+  restore(sessions: Record<string, string | null>) {
+    this.stop();
+    this.sessions = { claude: sessions.claude ?? null, codex: sessions.codex ?? null };
   }
 
   /** Forget all conversations and start fresh. */

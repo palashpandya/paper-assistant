@@ -25,18 +25,40 @@ export interface PdfBox {
   height: number;
 }
 
+function toBox(record: string): PdfBox | null {
+  const page = Number(field(record, 'Page'));
+  if (!page) return null;
+  const h = Number(field(record, 'h'));
+  const v = Number(field(record, 'v'));
+  const W = Number(field(record, 'W'));
+  const H = Number(field(record, 'H'));
+  return { page, x: h, y: v - H, width: W, height: H };
+}
+
+const view = (pdf: string, texFile: string, line: number) => {
+  const cwd = path.dirname(pdf);
+  return synctex(['view', '-i', `${line}:0:${path.relative(cwd, texFile)}`, '-o', path.basename(pdf)], cwd);
+};
+
 /** Source line -> position in the PDF. */
 export async function forward(pdf: string, texFile: string, line: number): Promise<PdfBox | null> {
-  const cwd = path.dirname(pdf);
-  const input = path.relative(cwd, texFile);
-  const out = await synctex(['view', '-i', `${line}:0:${input}`, '-o', path.basename(pdf)], cwd);
-  const page = Number(field(out, 'Page'));
-  if (!page) return null;
-  const h = Number(field(out, 'h'));
-  const v = Number(field(out, 'v'));
-  const W = Number(field(out, 'W'));
-  const H = Number(field(out, 'H'));
-  return { page, x: h, y: v - H, width: W, height: H };
+  return toBox(await view(pdf, texFile, line));
+}
+
+/** Source line -> every typeset box SyncTeX reports for it (a source line can span several PDF lines). */
+export async function forwardAll(pdf: string, texFile: string, line: number): Promise<PdfBox[]> {
+  const seen = new Set<string>();
+  const boxes: PdfBox[] = [];
+  for (const record of (await view(pdf, texFile, line)).split(/^Output:/m).slice(1)) {
+    const box = toBox(record);
+    if (!box) continue;
+    const key = [box.page, box.x, box.y, box.width, box.height].map((n) => n.toFixed(1)).join(' ');
+    if (!seen.has(key)) {
+      seen.add(key);
+      boxes.push(box);
+    }
+  }
+  return boxes;
 }
 
 /** Position in the PDF -> source file and line. */

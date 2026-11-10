@@ -46,7 +46,8 @@ export function Comments({ threads, showResolved, activeId, busy, onActivate, on
               <br />
               <br />
               Select text in the PDF and choose Comment, or use Draw to mark up a page. Comments stay with the paper,
-              and the agent can work through them.
+              and the agent can work through them. You can also ask the agent to review the paper and leave comments
+              of its own.
             </>
           ) : (
             'All comments are resolved.'
@@ -64,7 +65,11 @@ export function Comments({ threads, showResolved, activeId, busy, onActivate, on
           >
             <div className="thread-head">
               <span className="thread-num">{t.id}</span>
-              <span className="muted">p.{t.view.page}</span>
+              {t.rects.length + t.strokes.length > 0 ? (
+                <span className="muted">p.{t.view.page}</span>
+              ) : (
+                <span className="muted" title="These source lines could not be located in the PDF">not in PDF</span>
+              )}
               {t.anchor && (
                 <button
                   className="link"
@@ -86,7 +91,9 @@ export function Comments({ threads, showResolved, activeId, busy, onActivate, on
               )}
             </div>
 
-            {t.kind === 'comment' && t.quote && <div className="thread-quote">{t.quote}</div>}
+            {(t.kind === 'comment' || t.author === 'agent') && t.quote && (
+              <div className={`thread-quote ${t.author === 'agent' ? 'source' : ''}`}>{t.quote}</div>
+            )}
             {t.kind === 'drawing' && t.image && <img className="thread-image" src={`/api/annotations/${t.id}/image`} alt={`Drawing on page ${t.page}`} />}
 
             {t.messages.map((m, i) => (

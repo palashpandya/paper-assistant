@@ -98,6 +98,10 @@ export function Editor({ doc, jump, onSave, onBaseline, onShowInPdf, onSelection
     StreamLanguage.define(stex),
     highlight,
     EditorView.lineWrapping,
+    // The active-line background is painted over the selection layer; see .cm-has-selection in themes.css.
+    EditorView.editorAttributes.compute(['selection'], (state) => ({
+      class: state.selection.ranges.some((r) => !r.empty) ? 'cm-has-selection' : '',
+    })),
     keymap.of([
       {
         key: 'Alt-Enter',

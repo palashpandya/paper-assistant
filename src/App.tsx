@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { api, connect, type AgentInfo, type CompileResult, type FileInfo, type NewThread, type ServerMsg, type Thread } from './api';
+import { api, connect, type AgentInfo, type ChatSummary, type CompileResult, type FileInfo, type NewThread, type ServerMsg, type Thread } from './api';
 import { Comments } from './Comments';
 import { Chat, type ContextChip, type Message } from './Chat';
 import { Editor, type EditorDoc, type EditorSelection } from './Editor';
 import { PdfView, type PdfHandle, type PdfSelection } from './PdfView';
 import { THEMES, applyTheme, savedTheme, type ThemeId } from './themes';
+import { openChannel, openPdfTab, type TabChannel, type TabMsg } from './tabChannel';
 import { HANDLE, PANE_LETTER, PRESETS, defaultSizes, load, save, type PaneId, type Sizes } from './layout';
 
 const basename = (p: string) => p.split('/').pop()!;
@@ -37,8 +38,18 @@ export function App() {
   const [allSizes, setAllSizes] = useState<Record<string, Sizes>>(() => load('layout.sizes', {}));
   const [sidebarOpen, setSidebarOpen] = useState(() => load('sidebar.open', true));
   const [sidebarWidth, setSidebarWidth] = useState(() => load('sidebar.width', 190));
+  // True while the PDF is shown in its own tab instead of in this window.
+  const [detached, setDetached] = useState(false);
+  // Saved conversations, while the History list is open.
+  const [history, setHistory] = useState<{ current: string; chats: ChatSummary[]; next: number | null } | null>(null);
+  const loadingHistory = useRef(false);
+  // Which agent's conversations the History list shows: 'all' or an agent's name.
+  const [historyFilter, setHistoryFilter] = useState(() => load('history.filter', 'all'));
+  const historyFilterRef = useRef(historyFilter);
+  historyFilterRef.current = historyFilter;
 
   const pdfRef = useRef<PdfHandle>(null);
+  const channel = useRef<TabChannel | null>(null);
   const gridRef = useRef<HTMLDivElement>(null);
   const version = useRef(0);
   const chipId = useRef(0);
@@ -60,6 +71,8 @@ export function App() {
     setAgents(st.agents);
     setThreads((await api.threads()).threads);
     setBusy(st.agentBusy);
+    // The server keeps the conversation, so a reload or a restart picks it up where it was.
+    setMessages((await api.chat()).messages);
     setActive((a) => a ?? st.main ?? st.files[0]?.path ?? null);
   }, []);
 
@@ -146,10 +159,11 @@ export function App() {
   const showInPdf = useCallback(
     async (path: string, line: number) => {
       const { box } = await api.forward(path, line);
-      if (box) pdfRef.current?.highlight(box);
-      else flash('Could not find that line in the PDF.');
+      if (!box) flash('Could not find that line in the PDF.');
+      else if (detached) channel.current?.post({ type: 'highlight', box });
+      else pdfRef.current?.highlight(box);
     },
-    [flash],
+    [flash, detached],
   );
 
   const onReverse = useCallback(
@@ -205,7 +219,7 @@ export function App() {
       setMessages((ms) => [...ms, { role: 'user', parts: [{ type: 'text', text }], attached: attached.map((c) => c.label) }]);
       setPdfChips([]);
       setBusy(true);
-      api.send(agentName, prompt).catch((e) => {
+      api.send(agentName, prompt, text, attached.map((c) => c.label)).catch((e) => {
         setBusy(false);
         flash(e.message);
       });
@@ -244,11 +258,66 @@ export function App() {
     [sendThreads, flash],
   );
 
-  const activateThread = useCallback((id: number) => {
-    setTab('comments');
-    setActiveThread(id);
-    pdfRef.current?.showThread(id);
+  const activateThread = useCallback(
+    (id: number) => {
+      setTab('comments');
+      setActiveThread(id);
+      if (detached) channel.current?.post({ type: 'showThread', id });
+      else pdfRef.current?.showThread(id);
+    },
+    [detached],
+  );
+
+  // ---------- PDF in a separate tab ----------
+
+  // The PDF tab does its own rendering and SyncTeX lookups; what it sends here is what the editor and agent panes need.
+  const onTabMsg = useRef<(msg: TabMsg) => void>(() => {});
+  onTabMsg.current = (msg) => {
+    if (msg.type === 'goto') goTo(msg.path, msg.line);
+    else if (msg.type === 'ask') {
+      setPdfChips((cs) => [...cs, { id: ++chipId.current, label: msg.label, body: msg.body, removable: true }]);
+    } else if (msg.type === 'thread') {
+      setTab('comments');
+      setActiveThread(msg.id);
+    } else if (msg.type === 'created') {
+      setTab('comments');
+      setActiveThread(msg.id);
+      if (msg.send) sendThreads([msg.id]);
+    }
+  };
+
+  useEffect(() => {
+    let leaving: ReturnType<typeof setTimeout> | undefined;
+    const ch = openChannel((msg) => {
+      if (msg.type === 'hello') {
+        clearTimeout(leaving);
+        setDetached(true);
+      } else if (msg.type === 'bye') {
+        // A reload of the PDF tab says bye and then hello; wait before taking the PDF back.
+        clearTimeout(leaving);
+        leaving = setTimeout(() => setDetached(false), 1500);
+      } else onTabMsg.current(msg);
+    });
+    channel.current = ch;
+    ch?.post({ type: 'ping' }); // Finds a PDF tab left open from before this window loaded.
+    return () => {
+      clearTimeout(leaving);
+      ch?.close();
+    };
   }, []);
+
+  useEffect(() => {
+    if (detached) channel.current?.post({ type: 'view', activeThread, showResolved });
+  }, [detached, activeThread, showResolved]);
+
+  const detachPdf = useCallback(() => {
+    if (!channel.current || !openPdfTab()) flash('The browser blocked the new tab.');
+  }, [flash]);
+
+  const dockPdf = () => {
+    channel.current?.post({ type: 'close' });
+    setDetached(false);
+  };
 
   const openThreads = threads.filter((t) => !t.resolved);
   const shownThreads = showResolved ? threads : openThreads;
@@ -266,11 +335,87 @@ export function App() {
     void api.reset();
     setMessages([]);
     setPdfChips([]);
+    setHistory(null);
+  };
+
+  const toggleHistory = () => {
+    if (history) setHistory(null);
+    else void api.chats(0, historyFilter).then(setHistory, (e) => flash(e.message));
+  };
+
+  const filterHistory = (filter: string) => {
+    setHistoryFilter(filter);
+    save('history.filter', filter);
+    api.chats(0, filter).then(
+      (page) => {
+        if (historyFilterRef.current !== filter) return; // Changed again meanwhile.
+        setHistory((h) => h && page);
+        historyRef.current?.scrollTo(0, 0);
+      },
+      (e) => flash(e.message),
+    );
+  };
+
+  /** The list is long in a folder with a lot of past sessions, so further pages load as it is scrolled. */
+  const historyRef = useRef<HTMLDivElement>(null);
+  const moreHistory = () => {
+    const el = historyRef.current;
+    if (!el || !history || history.next === null || loadingHistory.current) return;
+    if (el.scrollTop + el.clientHeight < el.scrollHeight - 80) return;
+    loadingHistory.current = true;
+    const filter = historyFilter;
+    api
+      .chats(history.next, filter)
+      .then((page) =>
+        setHistory((h) =>
+          // A page that was asked for before the filter changed belongs to another list.
+          h && historyFilterRef.current === filter
+            ? { ...page, chats: [...h.chats, ...page.chats.filter((c) => !h.chats.some((o) => o.id === c.id))] }
+            : h,
+        ),
+      )
+      .catch((err) => flash(err.message))
+      .finally(() => (loadingHistory.current = false));
+  };
+
+  // A page can come back too short to scroll (sessions with nothing in them are skipped); then fetch on.
+  useEffect(moreHistory, [history]);
+
+  /** Switch to a saved conversation; the agent's next turn resumes its session from then. */
+  const openChat = (id: string) => {
+    setHistory(null);
+    api.openChat(id).then(
+      (chat) => {
+        setMessages(chat.messages);
+        setPdfChips([]);
+        // Only the agent it was held with remembers it.
+        if (chat.agent) setAgentChoice(chat.agent);
+      },
+      (e) => flash(e.message),
+    );
+  };
+
+  const deleteChat = (id: string) => {
+    api.deleteChat(id).then(
+      () => {
+        if (id === history?.current) setMessages([]);
+        setHistory((h) => h && { ...h, chats: h.chats.filter((c) => c.id !== id) });
+      },
+      (e) => flash(e.message),
+    );
   };
 
   // ---------- layout ----------
 
-  const preset = PRESETS.find((p) => p.id === presetId) ?? PRESETS[0];
+  const chosen = PRESETS.find((p) => p.id === presetId) ?? PRESETS[0];
+  // With the PDF in its own tab, the same arrangement is used without the PDF pane, with its own saved sizes.
+  const preset = detached
+    ? {
+        ...chosen,
+        id: `${chosen.id}/no-pdf`,
+        columns: chosen.columns.map((col) => col.filter((id) => id !== 'pdf')).filter((col) => col.length > 0),
+      }
+    : chosen;
   const saved = allSizes[preset.id];
   const sizes = saved && saved.cols.length === preset.columns.length ? saved : defaultSizes(preset);
   const stackedCol = preset.columns.findIndex((col) => col.length > 1);
@@ -337,6 +482,7 @@ export function App() {
   /** Panes are always the same three siblings; only their grid position changes, so nothing remounts. */
   const place = (id: PaneId): React.CSSProperties => {
     const col = preset.columns.findIndex((c) => c.includes(id));
+    if (col < 0) return { display: 'none' }; // The PDF pane while it is in its own tab; it stays mounted.
     const row = preset.columns[col].indexOf(id);
     return { gridColumn: 2 * col + 1, gridRow: col === stackedCol ? 2 * row + 1 : '1 / -1' };
   };
@@ -392,11 +538,11 @@ export function App() {
           {PRESETS.map((p) => (
             <button
               key={p.id}
-              className={`preset ${p.id === preset.id ? 'active' : ''}`}
+              className={`preset ${p.id === chosen.id ? 'active' : ''}`}
               onClick={() => setPresetId(p.id)}
               title={`Layout: ${p.label}`}
               aria-label={`Layout: ${p.label}`}
-              aria-pressed={p.id === preset.id}
+              aria-pressed={p.id === chosen.id}
             >
               {p.columns.map((col, i) => (
                 <span key={i} className="mini-col">
@@ -410,6 +556,11 @@ export function App() {
             </button>
           ))}
         </div>
+        {detached && (
+          <button className="btn small" onClick={dockPdf} title="Close the PDF tab and show the PDF in this window again">
+            Dock PDF
+          </button>
+        )}
         {!connected && <span className="status bad">Disconnected from server</span>}
         <button className={`status ${status.cls}`} onClick={() => setShowLog((v) => !v)} title="Show build output">
           {status.text}
@@ -500,13 +651,14 @@ export function App() {
           <div className="cell" style={place('pdf')}>
             <PdfView
               ref={pdfRef}
-              version={compile?.hasPdf ? compile.pdfVersion : 0}
+              version={compile?.hasPdf && !detached ? compile.pdfVersion : 0}
               threads={shownThreads}
               activeThread={activeThread}
               onReverse={onReverse}
               onAsk={onAsk}
               onThreadClick={activateThread}
               onCreate={createThread}
+              onDetach={detachPdf}
             />
           </div>
           <div className="cell" style={place('chat')}>
@@ -543,9 +695,31 @@ export function App() {
                 </select>
                 <span className="spacer" />
                 {tab === 'chat' ? (
-                  <button className="btn small" onClick={newChat} disabled={busy || messages.length === 0}>
-                    New chat
-                  </button>
+                  <>
+                    <button
+                      className={`btn small icon ${history ? 'active' : ''}`}
+                      onClick={toggleHistory}
+                      aria-expanded={!!history}
+                      title="History: continue an earlier conversation"
+                      aria-label="History: continue an earlier conversation"
+                    >
+                      <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden="true">
+                        <circle cx="6.5" cy="6.5" r="5.2" />
+                        <path d="M6.5 3.6v3.1l2 1.3" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    </button>
+                    <button
+                      className="btn small icon"
+                      onClick={newChat}
+                      disabled={busy || messages.length === 0}
+                      title="New chat (this one is kept under History)"
+                      aria-label="New chat"
+                    >
+                      <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden="true">
+                        <path d="M6.5 2.5v8M2.5 6.5h8" strokeLinecap="round" />
+                      </svg>
+                    </button>
+                  </>
                 ) : (
                   <>
                     {threads.length > openThreads.length && (
@@ -571,6 +745,54 @@ export function App() {
                   </>
                 )}
               </div>
+              {history && tab === 'chat' && (
+                <div className="history" ref={historyRef} onScroll={moreHistory}>
+                  <div className="history-filter" role="group" aria-label="Show conversations with">
+                    {[{ name: 'all', label: 'All' }, ...agents].map((a) => (
+                      <button
+                        key={a.name}
+                        className={`btn small ${historyFilter === a.name ? 'active' : ''}`}
+                        onClick={() => filterHistory(a.name)}
+                        aria-pressed={historyFilter === a.name}
+                      >
+                        {a.label}
+                      </button>
+                    ))}
+                  </div>
+                  {history.chats.length === 0 && (
+                    <div className="empty small">
+                      {historyFilter === 'all' ? 'No earlier conversations.' : 'No earlier conversations with this agent.'}
+                    </div>
+                  )}
+                  {history.chats.map((c) => (
+                    <div key={c.id} className={`history-row ${c.id === history.current ? 'current' : ''}`}>
+                      <button
+                        className="history-open"
+                        onClick={() => openChat(c.id)}
+                        disabled={busy}
+                        title={busy ? 'Wait for the agent to finish' : 'Continue this conversation'}
+                      >
+                        <span className="history-title">{c.title || 'Untitled'}</span>
+                        <span className="muted">
+                          {new Date(c.updatedAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}
+                          {c.id === history.current ? ' · open now' : ''}
+                          {c.source !== 'app' ? ` · ${c.label}${c.folder ? ` in ${c.folder}/` : ''}` : ''}
+                        </span>
+                      </button>
+                      <button
+                        className="btn small quiet"
+                        onClick={() => deleteChat(c.id)}
+                        disabled={busy && c.id === history.current}
+                        title="Remove from this list"
+                        aria-label={`Remove conversation from the list: ${c.title || 'Untitled'}`}
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                  {history.next !== null && <div className="empty small">Scroll for earlier conversations…</div>}
+                </div>
+              )}
               <Chat
                 hidden={tab !== 'chat'}
                 messages={messages}
