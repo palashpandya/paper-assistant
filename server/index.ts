@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import chokidar from 'chokidar';
 import express from 'express';
 import { WebSocketServer, type WebSocket } from 'ws';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { Agents } from './agent.ts';
 import { Annotations, type NewThread } from './annotations.ts';
 import { Chats } from './chats.ts';
@@ -15,6 +15,7 @@ import { Compiler } from './compiler.ts';
 import { Settings, claudeAccounts } from './settings.ts';
 import { Project, isAssetFile, isSkippedDir, isTextFile } from './project.ts';
 import { forward, reverse } from './synctex.ts';
+import { projectSymbols, texInstalled } from './symbols.ts';
 
 // ---------- command line ----------
 
@@ -29,7 +30,12 @@ if (flag('--help') || flag('-h')) {
 
   folder      The LaTeX project to open (default: the current folder)
   --port      Port to listen on (default: 4317, or the next free one)
-  --no-open   Do not open the browser`);
+  --no-open   Do not open the browser
+  --version   Print the version`);
+  process.exit(0);
+}
+if (flag('--version') || flag('-v')) {
+  console.log(JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version);
   process.exit(0);
 }
 const positional = argv.filter((a, i) => !a.startsWith('-') && argv[i - 1] !== '--port');
@@ -207,6 +213,16 @@ app.get('/api/state', (_req, res) => {
     claudeConfig: settings.claudeConfig,
     agents: agents.list(),
   });
+});
+
+// What the editor's completion offers: the paper's own labels, citation keys, macros and files...
+app.get('/api/symbols', (_req, res) => {
+  res.json(projectSymbols(project));
+});
+
+// ...and the packages and classes of the TeX installation, which do not change while the app runs.
+app.get('/api/tex-installed', async (_req, res) => {
+  res.json(await texInstalled());
 });
 
 app.get('/api/file', (req, res) => {
@@ -508,6 +524,11 @@ server.on('listening', () => {
   } else {
     console.log(`API on ${url} (run the Vite dev server for the UI)`);
   }
+  // Say what is missing now, rather than at the first build or the first message to the agent.
+  const onPath = (cmd: string) => spawnSync('which', [cmd], { stdio: 'ignore' }).status === 0;
+  if (!onPath('pdflatex')) console.warn('Warning: pdflatex was not found. Install a TeX distribution (TeX Live or MacTeX) to build the PDF.');
+  else if (!onPath('synctex')) console.warn('Warning: synctex was not found. Jumping between source and PDF, and comments on the PDF, need it.');
+  if (!agents.list().some((a) => a.available)) console.warn('Warning: neither claude nor codex was found. Install Claude Code or Codex and log in to use the agent.');
   void compiler.compile();
 });
 server.listen(port, HOST);

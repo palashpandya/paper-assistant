@@ -14,9 +14,12 @@ PAPER=/path/to/paper npm run dev # same, on another project
 npm run build                    # vite build -> dist/, tsc -> dist-server/
 npm start -- <folder> [--port N] [--no-open]   # run the built app (bin/paper-assistant.js)
 npm run typecheck                # front end and server tsconfigs
+npm run release                  # build and pack release/paper-assistant-<version>.tgz
 ```
 
 There is no test suite and no linter. `npm run typecheck` is the only static check. UI changes have been verified by driving the built app in headless Chrome (`puppeteer-core` with `/usr/bin/google-chrome`, kept outside the repo) against a scratch copy of `examples/sample` on a spare port with `--no-open`. Do not test against the user's real paper folders; builds and agent turns write into the project.
+
+Users install the release tarball with `npm install -g ./paper-assistant-<version>.tgz`. It ships `dist/` and `dist-server/` prebuilt, so only what the server imports at run time (`express`, `ws`, `chokidar`) belongs in `dependencies`; everything the browser uses is bundled by Vite and stays in `devDependencies`.
 
 `npm start` serves `dist/` and runs `dist-server/`, so rebuild after changes. `prepare` runs the build, so `npm install` and `npm pack` build too.
 
@@ -44,6 +47,7 @@ React + Vite. `App.tsx` owns all state and the WebSocket handler; `api.ts` has t
 
 - **Layout:** the editor, PDF and agent panes are always the same three sibling grid cells; presets in `layout.ts` only change their grid placement, so switching layouts never remounts a pane. Keep it that way, since the editor and PDF hold imperative state.
 - **`Editor.tsx`:** one CodeMirror view created once, driven through refs. `doc.version` bumps mean content arrived from outside (file load or agent edit); those transactions carry the `External` annotation so they are not saved back. Review mode is `@codemirror/merge`'s `unifiedMergeView` in a compartment, with the baseline as the original; accepting a chunk changes the original (reported via `onBaseline`), rejecting changes the document (saved like a normal edit).
+- **`latexComplete.ts`:** the editor's completion source, attached to the LaTeX language as `autocomplete` language data. It decides from the text before the cursor what is wanted: a command after an odd number of backslashes (built-in lists in that file plus the paper's macros), or the contents of a known command's argument (`argKind()`: labels, citation keys, environments, packages, classes, files). The paper's own names come from `/api/symbols` (`server/symbols.ts`, a regex scan of the tracked files, re-fetched at most every 2 s) and the installed packages from `/api/tex-installed` (read once from the TeX tree's `ls-R` indexes found by `kpsewhich`, with a built-in fallback list). The `Symbols` shape is mirrored in `api.ts`.
 - **`PdfView.tsx`:** pages are managed imperatively (PDF.js canvas + text layer per page, rendered lazily, swapped in place so rebuilds do not flicker or lose scroll). Annotations are drawn as an SVG overlay per page with a viewBox in PDF points. `pdfjs-dist` is pinned to v4 because the text layer relies on the `--scale-factor` CSS variable.
 - **PDF in a separate tab:** `/?view=pdf` renders `PdfTab.tsx` (a `PdfView` with its own socket) instead of `App`. The two windows talk over a `BroadcastChannel` (`tabChannel.ts`, message types in `TabMsg`); the server is not involved. The main window is "detached" while a PDF tab answers `ping` with `hello`; its own `PdfView` then stays mounted but hidden with `version` 0, and the layout preset is used with the PDF pane filtered out (sizes saved under `<preset>/no-pdf`). The PDF tab does its own SyncTeX lookups and annotation saves and only forwards what the editor and agent panes need.
 - **`Markdown.tsx`:** chat rendering with `react-markdown` + KaTeX. For user text, `autoMath` wraps bare LaTeX that KaTeX can parse in `$...$`; the agent always receives the raw text.

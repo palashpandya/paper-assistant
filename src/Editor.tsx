@@ -6,6 +6,7 @@ import { HighlightStyle, StreamLanguage, syntaxHighlighting } from '@codemirror/
 import { tags } from '@lezer/highlight';
 import { stex } from '@codemirror/legacy-modes/mode/stex';
 import { getOriginalDoc, unifiedMergeView } from '@codemirror/merge';
+import { latexCompletion } from './latexComplete';
 
 export interface EditorDoc {
   path: string;
@@ -46,6 +47,8 @@ const highlight = syntaxHighlighting(
     { tag: tags.invalid, color: 'var(--bad)' },
   ]),
 );
+
+const latex = StreamLanguage.define(stex);
 
 /** Marks transactions that load content from outside, so they are not saved back. */
 const External = Annotation.define<boolean>();
@@ -95,7 +98,8 @@ export function Editor({ doc, jump, onSave, onBaseline, onShowInPdf, onSelection
 
   const extensions = (review: boolean, baseline: string) => [
     basicSetup,
-    StreamLanguage.define(stex),
+    latex,
+    latex.data.of({ autocomplete: latexCompletion }),
     highlight,
     EditorView.lineWrapping,
     // The active-line background is painted over the selection layer; see .cm-has-selection in themes.css.

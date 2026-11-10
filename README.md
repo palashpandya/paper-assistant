@@ -12,19 +12,35 @@ The agent is the [Claude Code](https://claude.com/claude-code) or Codex CLI runn
 
 ## Install and run
 
+Install from the release file, `paper-assistant-<version>.tgz`. It is already built, so this takes a few seconds:
+
 ```sh
-npm install -g /path/to/paper-assistant      # or the packed .tgz, or a git URL
+npm install -g ./paper-assistant-0.1.0.tgz     # a downloaded file: keep the ./ or give the full path
+```
+
+That puts the `paper-assistant` command on your path. Then, in any paper's folder:
+
+```sh
 cd /path/to/your/paper
 paper-assistant
 ```
 
-This opens the paper in your browser. Options: `paper-assistant [folder] [--port <number>] [--no-open]`. If the port is taken, for example because another paper is open, the next free one is used.
+This opens the paper in your browser. Options: `paper-assistant [folder] [--port <number>] [--no-open] [--version]`. If the port is taken, for example because another paper is open, the next free one is used. On starting, it says so if `pdflatex`, `synctex` or an agent CLI is missing.
 
-From a checkout without installing: `npm install`, then `npm start -- /path/to/your/paper` (try `examples/sample`).
+To update, install the newer file the same way. To remove it: `npm uninstall -g paper-assistant`.
+
+If `npm install -g` fails with a permissions error, your Node installation keeps global packages in a system folder; use a Node version manager such as `nvm`, or set a prefix you own with `npm config set prefix ~/.local`.
+
+### From source
+
+`npm install -g github:palashpandya/paper-assistant` installs straight from the repository, for those with access to it, building as it goes. From a checkout without installing: `npm install`, then `npm start -- /path/to/your/paper` (try `examples/sample`).
+
+To make a release file: set the version in `package.json`, then `npm run release`, which builds and writes `release/paper-assistant-<version>.tgz`.
 
 ## What it does
 
 - **Edit and build:** changes save automatically and the PDF rebuilds and refreshes in place.
+- **Completion while you type:** a backslash offers LaTeX commands and symbols (with the symbol shown), plus the macros your paper defines; commands with arguments are filled in with places to Tab between. `\ref{` and its relatives offer the paper's labels, `\cite{` its citation keys (searchable by author, year and title), `\begin{` environments with the matching `\end`, `\usepackage{` the packages in your TeX installation, and `\input{` and `\includegraphics{` the paper's files. Enter accepts a suggestion, Escape dismisses it, Ctrl+Space asks for one.
 - **Jump between source and PDF:** Ctrl+click in the PDF goes to the source line; "Show in PDF" (Alt+Enter) highlights the current line in the PDF.
 - **Agent chat:** the agent edits the project files directly. Its edits appear in the editor as a diff, with Accept and Reject per change or for the whole file. Choose Claude Code or Codex in the agent pane.
 - **Point at a passage:** select text in the PDF and click "Ask agent", or select text in the editor; the selection and its source location are attached to your next message.

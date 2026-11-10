@@ -156,8 +156,21 @@ const post = (url: string, body?: unknown) =>
 
 const q = (path: string) => `path=${encodeURIComponent(path)}`;
 
+/** What completion offers from the paper itself; mirrors Symbols in server/symbols.ts. */
+export interface Symbols {
+  labels: { name: string; file: string; line: number }[];
+  cites: { key: string; detail: string }[];
+  macros: { name: string; args: number }[];
+  envs: string[];
+  tex: string[];
+  bib: string[];
+  graphics: string[];
+}
+
 export const api = {
   state: () => call<AppState>('/api/state'),
+  symbols: () => call<Symbols>('/api/symbols'),
+  texInstalled: () => call<{ packages: string[]; classes: string[] }>('/api/tex-installed'),
   readFile: (path: string) => call<{ content: string; baseline: string }>(`/api/file?${q(path)}`),
   writeFile: (path: string, content: string) =>
     call<{ baseline: string }>(`/api/file?${q(path)}`, {
