@@ -7,6 +7,7 @@ import { tags } from '@lezer/highlight';
 import { stex } from '@codemirror/legacy-modes/mode/stex';
 import { getOriginalDoc, unifiedMergeView } from '@codemirror/merge';
 import { latexCompletion } from './latexComplete';
+import { mathPairs } from './latexInput';
 
 export interface EditorDoc {
   path: string;
@@ -97,6 +98,7 @@ export function Editor({ doc, jump, onSave, onBaseline, onShowInPdf, onSelection
   };
 
   const extensions = (review: boolean, baseline: string) => [
+    mathPairs, // Before basicSetup, so its Backspace is tried first.
     basicSetup,
     latex,
     latex.data.of({ autocomplete: latexCompletion }),

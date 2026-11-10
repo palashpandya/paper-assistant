@@ -257,9 +257,9 @@ export async function latexCompletion(context: CompletionContext): Promise<Compl
 
   // Inside a command's argument: \cite[p. 3]{one, tw|
   const arg = /\\([a-zA-Z]+)\*?(?:\[[^\]]*\])*\{([^{}]*)$/.exec(before);
-  if (arg) {
-    const kind = argKind(arg[1]);
-    if (!kind) return null;
+  // Any other command's argument is ordinary LaTeX, where commands are completed as usual: \ket{\psi}.
+  const kind = arg && argKind(arg[1]);
+  if (arg && kind) {
     const part = /[^,\s]*$/.exec(arg[2])![0];
     const from = pos - part.length;
 
