@@ -81,6 +81,13 @@ export interface NewThread {
   image?: string;
 }
 
+/** A Claude Code login found on this machine; `dir` is its config folder, null for the default one. */
+export interface ClaudeAccount {
+  dir: string | null;
+  folder: string;
+  email: string | null;
+}
+
 export interface AgentInfo {
   name: string;
   label: string;
@@ -128,6 +135,9 @@ export interface AppState {
   compile: CompileResult | null;
   agentBusy: boolean;
   agents: AgentInfo[];
+  claudeAccounts: ClaudeAccount[];
+  /** The login in use for this paper. */
+  claudeConfig: string | null;
 }
 
 async function call<T>(url: string, init?: RequestInit): Promise<T> {
@@ -182,6 +192,12 @@ export const api = {
   deleteThread: (id: number) => call<{ ok: boolean }>(`/api/annotations/${id}`, { method: 'DELETE' }),
   stop: () => post('/api/agent/stop'),
   reset: () => post('/api/agent/reset'),
+  setClaudeConfig: (dir: string | null) =>
+    call<{ ok: boolean }>('/api/settings/claude-config', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dir }),
+    }),
   chat: () => call<{ id: string; messages: ChatMessage[] }>('/api/chat'),
   /** One page of the History list; `next` is the offset to ask for after it, or null at the end. */
   chats: (offset = 0, agent = 'all') =>

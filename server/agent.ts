@@ -123,10 +123,13 @@ export class Agents {
   private sessions: Record<AgentName, string | null> = { claude: null, codex: null };
   private readonly cwd: string;
   private readonly emit: (event: AgentEvent) => void;
+  private readonly claudeConfig: () => string | null;
 
-  constructor(cwd: string, emit: (event: AgentEvent) => void) {
+  /** `claudeConfig` gives the config folder of the Claude Code login to run under, or null for the default one. */
+  constructor(cwd: string, emit: (event: AgentEvent) => void, claudeConfig: () => string | null) {
     this.cwd = cwd;
     this.emit = emit;
+    this.claudeConfig = claudeConfig;
   }
 
   get busy() {
@@ -176,8 +179,16 @@ export class Agents {
     const backend = BACKENDS[name];
     const fresh = !this.sessions[name];
 
+    const env = { ...process.env };
+    if (name === 'claude') {
+      // The default login is selected by the variable being absent, not by pointing it at ~/.claude.
+      const config = this.claudeConfig();
+      if (config) env.CLAUDE_CONFIG_DIR = config;
+      else delete env.CLAUDE_CONFIG_DIR;
+    }
     const child = spawn(backend.command, backend.args(this.sessions[name]), {
       cwd: this.cwd,
+      env,
       stdio: ['pipe', 'pipe', 'pipe'],
     });
     this.child = child;

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { api, connect, type AgentInfo, type ChatSummary, type CompileResult, type FileInfo, type NewThread, type ServerMsg, type Thread } from './api';
+import { api, connect, type AgentInfo, type ChatSummary, type ClaudeAccount, type CompileResult, type FileInfo, type NewThread, type ServerMsg, type Thread } from './api';
 import { Comments } from './Comments';
 import { Chat, type ContextChip, type Message } from './Chat';
 import { Editor, type EditorDoc, type EditorSelection } from './Editor';
@@ -43,6 +43,8 @@ export function App() {
   // Saved conversations, while the History list is open.
   const [history, setHistory] = useState<{ current: string; chats: ChatSummary[]; next: number | null } | null>(null);
   const loadingHistory = useRef(false);
+  // Claude Code logins on this machine, and the one this paper uses.
+  const [accounts, setAccounts] = useState<{ list: ClaudeAccount[]; current: string | null }>({ list: [], current: null });
   // Which agent's conversations the History list shows: 'all' or an agent's name.
   const [historyFilter, setHistoryFilter] = useState(() => load('history.filter', 'all'));
   const historyFilterRef = useRef(historyFilter);
@@ -69,6 +71,7 @@ export function App() {
     setCompiling(st.compiling);
     setCompile(st.compile);
     setAgents(st.agents);
+    setAccounts({ list: st.claudeAccounts, current: st.claudeConfig });
     setThreads((await api.threads()).threads);
     setBusy(st.agentBusy);
     // The server keeps the conversation, so a reload or a restart picks it up where it was.
@@ -338,6 +341,18 @@ export function App() {
     setHistory(null);
   };
 
+  /** Run Claude Code under another login. Its conversations are separate, so this starts a new chat. */
+  const chooseAccount = (dir: string | null) => {
+    setHistory(null);
+    api.setClaudeConfig(dir).then(
+      () => {
+        setPdfChips([]);
+        void refresh();
+      },
+      (e) => flash(e.message),
+    );
+  };
+
   const toggleHistory = () => {
     if (history) setHistory(null);
     else void api.chats(0, historyFilter).then(setHistory, (e) => flash(e.message));
@@ -534,6 +549,23 @@ export function App() {
             </option>
           ))}
         </select>
+        {accounts.list.length > 1 && (
+          <select
+            className="theme-select account"
+            value={accounts.current ?? ''}
+            onChange={(e) => chooseAccount(e.target.value || null)}
+            disabled={busy}
+            aria-label="Claude Code login"
+            title="Which Claude Code login the agent runs under. Each login has its own conversation history."
+          >
+            {accounts.list.map((a) => (
+              <option key={a.dir ?? ''} value={a.dir ?? ''}>
+                Claude: {a.email ?? a.folder}
+                {a.email ? ` (${a.folder})` : ''}
+              </option>
+            ))}
+          </select>
+        )}
         <div className="presets" role="group" aria-label="Pane layout">
           {PRESETS.map((p) => (
             <button

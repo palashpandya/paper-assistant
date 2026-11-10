@@ -19,6 +19,11 @@ export interface Chat {
   updatedAt: string;
   /** Each CLI's own session id for this conversation, which is what lets it be resumed later. */
   sessions: Record<string, string | null>;
+  /**
+   * Config folder of the Claude Code login its Claude session belongs to (null: the default login).
+   * A session can only be resumed under the login it was held with. Absent on chats from before this was recorded.
+   */
+  claudeConfig?: string | null;
   messages: ChatMessage[];
 }
 
@@ -35,8 +40,10 @@ export class Chats {
   private hidden: string[] = [];
   current: Chat;
   private readonly file: string;
+  private readonly claudeConfig: () => string | null;
 
-  constructor(root: string) {
+  constructor(root: string, claudeConfig: () => string | null) {
+    this.claudeConfig = claudeConfig;
     this.file = path.join(root, '.paper-assistant', 'chats.json');
     let currentId: unknown = null;
     try {
@@ -67,7 +74,21 @@ export class Chats {
 
   list() {
     // `agents`: the agents that took part, i.e. the ones that can pick the conversation up again.
-    return this.chats.map((c) => ({ id: c.id, title: c.title, updatedAt: c.updatedAt, agents: Object.keys(c.sessions).filter((a) => c.sessions[a]) }));
+    // Conversations that only the other Claude Code login can continue are left out until it is selected again.
+    return this.chats
+      .map((c) => ({ id: c.id, title: c.title, updatedAt: c.updatedAt, agents: Object.keys(this.resumable(c)), held: Object.values(c.sessions).some(Boolean) }))
+      .filter((c) => c.agents.length > 0 || !c.held);
+  }
+
+  /** The sessions of a conversation that can be resumed under the Claude Code login now in use. */
+  resumable(c: Chat): Record<string, string> {
+    const out: Record<string, string> = {};
+    for (const [agent, id] of Object.entries(c.sessions)) {
+      if (!id) continue;
+      if (agent === 'claude' && c.claudeConfig !== undefined && c.claudeConfig !== this.claudeConfig()) continue;
+      out[agent] = id;
+    }
+    return out;
   }
 
   /** Starts a new, empty conversation; the previous one stays in the list. */
@@ -99,7 +120,8 @@ export class Chats {
 
   /** Takes over a session held in a CLI outside the app as a conversation of its own, and opens it. */
   adopt(agent: string, sessionId: string, title: string, updatedAt: string, messages: ChatMessage[]): Chat {
-    const chat = { ...this.blank(), title, updatedAt, sessions: { [agent]: sessionId }, messages };
+    const chat: Chat = { ...this.blank(), title, updatedAt, sessions: { [agent]: sessionId }, messages };
+    if (agent === 'claude') chat.claudeConfig = this.claudeConfig();
     this.chats.push(chat);
     this.current = chat;
     this.save();
@@ -140,6 +162,7 @@ export class Chats {
     } else {
       if (ev.error) last.error = ev.error;
       cur.sessions = { ...sessions };
+      if (sessions.claude) cur.claudeConfig = this.claudeConfig();
       cur.updatedAt = new Date().toISOString();
       this.save();
     }

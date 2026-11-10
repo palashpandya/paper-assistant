@@ -370,3 +370,10 @@
   background: var(--panel);
   padding: 3px 4px;
 }
+
+/* The Claude Code login chooser shares the look; its labels are e-mail addresses, so keep it from crowding the bar. */
+.theme-select.account {
+  max-width: 230px;
+  min-width: 0;
+  text-overflow: ellipsis;
+}

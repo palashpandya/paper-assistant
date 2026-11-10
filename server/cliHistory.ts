@@ -81,8 +81,7 @@ function parseLines(file: string, maxBytes?: number): any[] {
 
 // ---------- Claude Code: <config>/projects/<folder path with - for every other character>/<session>.jsonl ----------
 
-const claudeDir = (root: string) =>
-  path.join(process.env.CLAUDE_CONFIG_DIR ?? path.join(os.homedir(), '.claude'), 'projects', root.replace(/[^a-zA-Z0-9]/g, '-'));
+const claudeDir = (config: string, root: string) => path.join(config, 'projects', root.replace(/[^a-zA-Z0-9]/g, '-'));
 
 function claudeMessages(lines: any[], root: string, firstOnly = false): ChatMessage[] {
   const out: ChatMessage[] = [];
@@ -169,9 +168,10 @@ function codexMessages(lines: any[], firstOnly = false): ChatMessage[] {
 
 /**
  * Sessions either CLI has on record for the paper folder and the folders around it, newest first.
+ * `claudeConfig` is the config folder of the Claude Code login in use: each login has its own sessions.
  * Only the files' names and dates are read here; see `sessionTitle` for the rest.
  */
-export function cliSessions(root: string): CliSession[] {
+export function cliSessions(root: string, claudeConfig: string): CliSession[] {
   const dirs = scope(root);
   const found = new Map<string, CliSession>();
   const add = (agent: 'claude' | 'codex', sessionId: string | null, file: string, dir: string) => {
@@ -188,7 +188,8 @@ export function cliSessions(root: string): CliSession[] {
   };
   for (const dir of dirs) {
     try {
-      for (const f of fs.readdirSync(claudeDir(dir))) if (f.endsWith('.jsonl')) add('claude', f.slice(0, -6), path.join(claudeDir(dir), f), dir);
+      const store = claudeDir(claudeConfig, dir);
+      for (const f of fs.readdirSync(store)) if (f.endsWith('.jsonl')) add('claude', f.slice(0, -6), path.join(store, f), dir);
     } catch {
       // Claude Code has never been used in this folder.
     }

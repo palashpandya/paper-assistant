@@ -12,6 +12,7 @@ import { Annotations, type NewThread } from './annotations.ts';
 import { Chats } from './chats.ts';
 import { cliSessions, cliTranscript, sessionTitle } from './cliHistory.ts';
 import { Compiler } from './compiler.ts';
+import { Settings, claudeAccounts } from './settings.ts';
 import { Project, isAssetFile, isSkippedDir, isTextFile } from './project.ts';
 import { forward, reverse } from './synctex.ts';
 
@@ -87,12 +88,17 @@ const scheduleCompile = () => {
 const afterBuild: (() => void)[] = [];
 
 // The conversation is recorded here as well as shown in the browser, so it survives reloads and restarts.
-const chats = new Chats(project.root);
-const agents = new Agents(project.root, (event) => {
-  chats.onEvent(event, agents.sessionIds());
-  broadcast({ type: 'agent', event });
-});
-agents.restore(chats.current.sessions);
+const settings = new Settings(project.root);
+const chats = new Chats(project.root, () => settings.claudeConfig);
+const agents = new Agents(
+  project.root,
+  (event) => {
+    chats.onEvent(event, agents.sessionIds());
+    broadcast({ type: 'agent', event });
+  },
+  () => settings.claudeConfig,
+);
+agents.restore(chats.resumable(chats.current));
 
 const annotations = new Annotations(project, () => compiler.pdfPath());
 const broadcastAnnotations = async () => broadcast({ type: 'annotations', threads: await annotations.views() });
@@ -197,6 +203,8 @@ app.get('/api/state', (_req, res) => {
     compiling: compiler.busy,
     compile: compiler.last,
     agentBusy: agents.busy,
+    claudeAccounts: claudeAccounts(),
+    claudeConfig: settings.claudeConfig,
     agents: agents.list(),
   });
 });
@@ -350,6 +358,23 @@ app.post('/api/agent/reset', (_req, res) => {
   res.json({ ok: true });
 });
 
+// Which Claude Code login the agent runs under and History reads from. A conversation belongs to the login it
+// was held with, so changing it starts a new one.
+app.put('/api/settings/claude-config', (req, res) => {
+  if (agents.busy) {
+    res.status(409).json({ error: 'The agent is still working.' });
+    return;
+  }
+  const dir = req.body?.dir;
+  if (dir !== null && typeof dir !== 'string') throw new Error('Bad login');
+  if (dir !== settings.claudeConfig) {
+    settings.setClaudeConfig(dir);
+    agents.reset();
+    chats.start();
+  }
+  res.json({ ok: true });
+});
+
 // ----- saved conversations -----
 
 app.get('/api/chat', (_req, res) => {
@@ -369,7 +394,7 @@ app.get('/api/chats', (req, res) => {
       .list()
       .filter((c) => !only || c.agents.includes(only))
       .map((c) => ({ updatedAt: c.updatedAt, saved: c, cli: null })),
-    ...cliSessions(project.root)
+    ...cliSessions(project.root, settings.claudeDir())
       .filter((s) => !known.has(s.sessionId) && (!only || s.agent === only))
       .map((s) => ({ updatedAt: s.updatedAt, saved: null, cli: s })),
   ].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
@@ -395,14 +420,15 @@ app.post('/api/chats/:id/open', (req, res) => {
   const cli = /^cli:(claude|codex):(.+)$/.exec(req.params.id);
   let chat;
   if (cli) {
-    const session = cliSessions(project.root).find((s) => s.agent === cli[1] && s.sessionId === cli[2]);
+    const session = cliSessions(project.root, settings.claudeDir()).find((s) => s.agent === cli[1] && s.sessionId === cli[2]);
     if (!session) throw new Error('No such session');
     chat = chats.adopt(session.agent, session.sessionId, sessionTitle(session), session.updatedAt, cliTranscript(project.root, session));
   } else {
     chat = chats.open(req.params.id);
   }
-  agents.restore(chat.sessions);
-  res.json({ id: chat.id, messages: chat.messages, agent: Object.keys(chat.sessions).find((a) => chat.sessions[a]) ?? null });
+  const sessions = chats.resumable(chat);
+  agents.restore(sessions);
+  res.json({ id: chat.id, messages: chat.messages, agent: Object.keys(sessions)[0] ?? null });
 });
 
 // Removes a conversation from the list. The CLIs' own session files are never touched.
