@@ -3,6 +3,7 @@ import * as pdfjs from 'pdfjs-dist';
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import 'pdfjs-dist/web/pdf_viewer.css';
 import type { NewThread, PdfBox, Rect, Thread } from './api';
+import { load, save } from './layout';
 
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
 
@@ -95,6 +96,9 @@ export const PdfView = forwardRef<PdfHandle, Props>(function PdfView(
   const [draft, setDraft] = useState<Draft | null>(null);
   const [note, setNote] = useState('');
   const [saving, setSaving] = useState(false);
+  // Night mode inverts the page colours on screen only; the PDF file and agent snapshots are unaffected.
+  const [night, setNight] = useState(() => load('pdf.night', false));
+  useEffect(() => save('pdf.night', night), [night]);
 
   const s = useRef({
     doc: null as pdfjs.PDFDocumentProxy | null,
@@ -524,6 +528,14 @@ export const PdfView = forwardRef<PdfHandle, Props>(function PdfView(
         <span className="spacer" />
         <span className="muted hint">{drawing ? 'Draw on the page, then add a note' : 'Ctrl+click to jump to source'}</span>
         <button
+          className={`btn small ${night ? 'active' : ''}`}
+          onClick={() => setNight((on) => !on)}
+          aria-pressed={night}
+          title="Night mode: show the PDF with inverted colours"
+        >
+          Night
+        </button>
+        <button
           className={`btn small ${drawing ? 'active' : ''}`}
           onClick={toggleDrawing}
           aria-pressed={drawing}
@@ -543,7 +555,7 @@ export const PdfView = forwardRef<PdfHandle, Props>(function PdfView(
         </button>
       </div>
       <div
-        className={`pdf-scroll ${drawing ? 'drawing' : ''}`}
+        className={`pdf-scroll ${drawing ? 'drawing' : ''} ${night ? 'night' : ''}`}
         ref={scrollRef}
         onClick={onClick}
         onMouseUp={onMouseUp}

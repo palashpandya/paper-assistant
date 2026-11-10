@@ -33,6 +33,7 @@ From a checkout without installing: `npm install`, then `npm start -- /path/to/y
 - **Comments follow the text:** when the PDF changes, comments and drawings move with the source line they point at. If that text is gone they are flagged as moved.
 - **Typeset math in chat:** agent replies render Markdown and math. LaTeX you type in a message (`\rho_{ij}`, `$...$`, `$$...$$`) is typeset in a live preview above the input; the agent still receives the source you typed.
 - **Layouts:** five pane arrangements in the top bar, all panes resizable, and a toggle for the file list. The choice is remembered per browser.
+- **Themes:** Paper (light), Solarized Light, Solarized Dark, Dracula, Nord and Gruvbox Dark, chosen in the top bar and remembered per browser. The PDF pages stay as LaTeX rendered them unless you switch on Night in the PDF bar, which inverts their colours on screen.
 - **Build errors:** click the build status for errors and warnings, jump to the offending line, or hand them to the agent with "Fix with agent".
 
 ## How it works
@@ -51,4 +52,4 @@ From a checkout without installing: `npm install`, then `npm start -- /path/to/y
 
 ## Not built yet
 
-Creating or renaming files from the UI, a dark theme, and several people working on one paper at once.
+Creating or renaming files from the UI, and several people working on one paper at once.

@@ -1,18 +1,4 @@
 :root {
-  --bg: #f4f3ef;
-  --panel: #ffffff;
-  --panel-2: #faf9f6;
-  --border: #e2dfd6;
-  --text: #1f1e1b;
-  --muted: #76726a;
-  --accent: #2f5fb3;
-  --accent-soft: #e6edf9;
-  --good: #2c7a4b;
-  --good-soft: #e3f3e8;
-  --warn: #9a6400;
-  --warn-soft: #fbf0d6;
-  --bad: #b3372c;
-  --bad-soft: #fbe6e3;
   --radius: 6px;
   font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   font-size: 13px;
@@ -159,7 +145,7 @@ span.status {
 
 .preset:hover {
   opacity: 0.9;
-  background: #ebe9e2;
+  background: var(--hover);
 }
 
 .preset.active {
@@ -184,8 +170,8 @@ span.status {
   font-size: 7px;
   font-weight: 700;
   line-height: 1;
-  color: #fff;
-  background: #8d897f;
+  color: var(--on-accent);
+  background: var(--muted);
 }
 
 .mini-cell.chat {
@@ -193,7 +179,7 @@ span.status {
 }
 
 .mini-cell.pdf {
-  background: #b9b5aa;
+  background: var(--faint);
 }
 
 /* ---------- buttons ---------- */
@@ -209,7 +195,7 @@ span.status {
 
 .btn:hover:not(:disabled) {
   background: var(--panel-2);
-  border-color: #cfcbc0;
+  border-color: var(--border-strong);
 }
 
 .btn:disabled {
@@ -230,12 +216,12 @@ span.status {
 .btn.primary {
   background: var(--accent);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
 }
 
 .btn.primary:hover:not(:disabled) {
-  background: #274f97;
-  border-color: #274f97;
+  background: var(--accent-strong);
+  border-color: var(--accent-strong);
 }
 
 .btn.on {
@@ -248,7 +234,7 @@ span.status {
 
 .btn.ok {
   color: var(--good);
-  border-color: #b9dcc6;
+  border-color: var(--good);
 }
 
 /* ---------- layout ---------- */
@@ -289,7 +275,7 @@ span.status {
 }
 
 .file:hover {
-  background: #eeece5;
+  background: var(--hover);
 }
 
 .file.active {
@@ -318,7 +304,7 @@ span.status {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: #d98a00;
+  background: var(--mark);
   flex: none;
 }
 
@@ -422,11 +408,6 @@ span.status {
   line-height: 1.55;
 }
 
-.editor-host .cm-gutters {
-  background: var(--panel-2);
-  border-right: 1px solid var(--border);
-  color: #a8a498;
-}
 
 .review {
   display: flex;
@@ -486,7 +467,7 @@ button.issue:not(:disabled):hover {
 }
 
 .issue.warn {
-  border-left-color: #d98a00;
+  border-left-color: var(--mark);
 }
 
 .issue-where {
@@ -520,7 +501,7 @@ button.issue:not(:disabled):hover {
 .pdf-scroll {
   flex: 1;
   overflow: auto;
-  background: #e9e7e1;
+  background: var(--pdf-bg);
 }
 
 .pdf-pages {
@@ -570,7 +551,7 @@ button.issue:not(:disabled):hover {
 .ask-button {
   position: fixed;
   z-index: 20;
-  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.22);
+  box-shadow: 0 3px 12px var(--shadow);
 }
 
 /* ---------- chat ---------- */
@@ -641,7 +622,7 @@ button.issue:not(:disabled):hover {
 .md code {
   font-family: ui-monospace, Menlo, Consolas, monospace;
   font-size: 12px;
-  background: rgba(0, 0, 0, 0.06);
+  background: var(--code-bg);
   border-radius: 4px;
   padding: 1px 4px;
 }
@@ -824,11 +805,11 @@ button.issue:not(:disabled):hover {
   bottom: 18px;
   left: 50%;
   transform: translateX(-50%);
-  background: #2b2a27;
-  color: #fff;
+  background: var(--text);
+  color: var(--bg);
   padding: 8px 14px;
   border-radius: var(--radius);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+  box-shadow: 0 4px 16px var(--shadow);
   z-index: 30;
 }
 
@@ -870,8 +851,8 @@ button.issue:not(:disabled):hover {
 }
 
 .count {
-  background: #d98a00;
-  color: #fff;
+  background: var(--mark);
+  color: var(--on-accent);
   border-radius: 999px;
   font-size: 10.5px;
   font-weight: 700;
@@ -888,7 +869,7 @@ button.issue:not(:disabled):hover {
   background: var(--panel);
   padding: 2px 4px;
   flex: 0 1 auto;
-  min-width: 88px;
+  min-width: 64px;
 }
 
 .tabs,
@@ -974,7 +955,7 @@ button.issue:not(:disabled):hover {
 }
 
 .thread-card.active {
-  border-color: #d98a00;
+  border-color: var(--mark);
   box-shadow: 0 0 0 2px var(--warn-soft);
 }
 
@@ -991,8 +972,8 @@ button.issue:not(:disabled):hover {
 }
 
 .thread-num {
-  background: #d98a00;
-  color: #fff;
+  background: var(--mark);
+  color: var(--on-accent);
   font-weight: 700;
   font-size: 11px;
   min-width: 18px;
@@ -1005,7 +986,7 @@ button.issue:not(:disabled):hover {
 }
 
 .thread-card.resolved .thread-num {
-  background: #a8a498;
+  background: var(--faint);
 }
 
 .badge {
@@ -1025,7 +1006,7 @@ button.issue:not(:disabled):hover {
 }
 
 .thread-quote {
-  border-left: 3px solid #f0c64f;
+  border-left: 3px solid var(--mark);
   padding: 1px 0 1px 8px;
   margin-bottom: 7px;
   color: var(--muted);
@@ -1176,7 +1157,7 @@ svg.annot .pin text {
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 8px;
-  box-shadow: 0 3px 14px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 3px 14px var(--shadow);
 }
 
 .note-panel {
@@ -1189,7 +1170,7 @@ svg.annot .pin text {
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 10px;
-  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.22);
+  box-shadow: 0 6px 24px var(--shadow);
   padding: 10px;
 }
 
@@ -1199,4 +1180,30 @@ svg.annot .pin text {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* ---------- PDF night mode ---------- */
+
+/* Invert lightness but rotate hues back, so coloured figures keep roughly their colours. */
+.pdf-scroll.night .pdf-page canvas {
+  filter: invert(1) hue-rotate(180deg);
+}
+
+.pdf-scroll.night .pdf-page {
+  background: #000;
+}
+
+.pdf-scroll.night .textLayer ::selection {
+  background: rgba(120, 170, 255, 0.4);
+}
+
+/* When a pane bar is tight, the hint text gives way before titles and buttons. */
+.pane-bar .pane-title {
+  flex: 0 1 auto;
+  min-width: 28px;
+}
+
+.pane-bar .hint {
+  flex: 0 100 auto;
+  min-width: 0;
 }

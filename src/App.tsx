@@ -4,6 +4,7 @@ import { Comments } from './Comments';
 import { Chat, type ContextChip, type Message } from './Chat';
 import { Editor, type EditorDoc, type EditorSelection } from './Editor';
 import { PdfView, type PdfHandle, type PdfSelection } from './PdfView';
+import { THEMES, applyTheme, savedTheme, type ThemeId } from './themes';
 import { HANDLE, PANE_LETTER, PRESETS, defaultSizes, load, save, type PaneId, type Sizes } from './layout';
 
 const basename = (p: string) => p.split('/').pop()!;
@@ -25,6 +26,7 @@ export function App() {
   const [selection, setSelection] = useState<EditorSelection | null>(null);
   const [connected, setConnected] = useState(true);
   const [notice, setNotice] = useState<string | null>(null);
+  const [theme, setTheme] = useState<ThemeId>(savedTheme);
   const [threads, setThreads] = useState<Thread[]>([]);
   const [activeThread, setActiveThread] = useState<number | null>(null);
   const [showResolved, setShowResolved] = useState(false);
@@ -369,6 +371,23 @@ export function App() {
         <span className="brand">Paper Assistant</span>
         <span className="project">{name}</span>
         <span className="spacer" />
+        <select
+          className="theme-select"
+          value={theme}
+          onChange={(e) => {
+            const id = e.target.value as ThemeId;
+            setTheme(id);
+            applyTheme(id);
+          }}
+          aria-label="Colour theme"
+          title="Colour theme"
+        >
+          {THEMES.map((t) => (
+            <option key={t.id} value={t.id}>
+              {t.label}
+            </option>
+          ))}
+        </select>
         <div className="presets" role="group" aria-label="Pane layout">
           {PRESETS.map((p) => (
             <button

@@ -1,0 +1,367 @@
+/*
+ * Colour themes. Every colour in the UI and the editor comes from these
+ * variables; a theme is one block that sets them. The compiled PDF pages are
+ * left as LaTeX produced them (white) in every theme.
+ */
+
+:root,
+:root[data-theme='paper'] {
+  color-scheme: light;
+  --bg: #f4f3ef;
+  --panel: #ffffff;
+  --panel-2: #faf9f6;
+  --border: #e2dfd6;
+  --border-strong: #cfcbc0;
+  --hover: #eeece5;
+  --text: #1f1e1b;
+  --muted: #76726a;
+  --faint: #a8a498;
+  --accent: #2f5fb3;
+  --accent-strong: #274f97;
+  --accent-soft: #e6edf9;
+  --on-accent: #ffffff;
+  --good: #2c7a4b;
+  --good-soft: #e3f3e8;
+  --warn: #9a6400;
+  --warn-soft: #fbf0d6;
+  --bad: #b3372c;
+  --bad-soft: #fbe6e3;
+  --mark: #d98a00;
+  --pdf-bg: #e9e7e1;
+  --code-bg: rgba(0, 0, 0, 0.06);
+  --shadow: rgba(0, 0, 0, 0.2);
+
+  --editor-bg: #ffffff;
+  --selection: #cfe0fb;
+  --active-line: #f2f6fd;
+  --cursor: #1f1e1b;
+  --add-bg: #e3f3e8;
+  --del-bg: #fbe6e3;
+  --syn-command: #2f5fb3;
+  --syn-keyword: #8a3ea8;
+  --syn-atom: #0b7285;
+  --syn-comment: #8a8578;
+  --syn-string: #2c7a4b;
+  --syn-number: #b3541e;
+  --syn-bracket: #76726a;
+  --syn-math: #9a6400;
+}
+
+:root[data-theme='solarized-light'] {
+  color-scheme: light;
+  --bg: #eee8d5;
+  --panel: #fdf6e3;
+  --panel-2: #f5efdc;
+  --border: #ddd6c1;
+  --border-strong: #c9c2ad;
+  --hover: #e9e2cd;
+  --text: #586e75;
+  --muted: #839496;
+  --faint: #93a1a1;
+  --accent: #268bd2;
+  --accent-strong: #1f78b8;
+  --accent-soft: #dfeaec;
+  --on-accent: #fdf6e3;
+  --good: #738400;
+  --good-soft: #eef0d0;
+  --warn: #a57c00;
+  --warn-soft: #f6ebc4;
+  --bad: #dc322f;
+  --bad-soft: #f9dcd3;
+  --mark: #cb4b16;
+  --pdf-bg: #e4ddc9;
+  --code-bg: rgba(88, 110, 117, 0.1);
+  --shadow: rgba(60, 50, 20, 0.22);
+
+  --editor-bg: #fdf6e3;
+  --selection: #d6e3e6;
+  --active-line: #f5efdc;
+  --cursor: #586e75;
+  --add-bg: #e9eccb;
+  --del-bg: #f7d9d0;
+  --syn-command: #268bd2;
+  --syn-keyword: #859900;
+  --syn-atom: #2aa198;
+  --syn-comment: #93a1a1;
+  --syn-string: #2aa198;
+  --syn-number: #d33682;
+  --syn-bracket: #839496;
+  --syn-math: #b58900;
+}
+
+:root[data-theme='solarized-dark'] {
+  color-scheme: dark;
+  --bg: #00212b;
+  --panel: #002b36;
+  --panel-2: #073642;
+  --border: #0f4654;
+  --border-strong: #1a5a6b;
+  --hover: #0a3f4d;
+  --text: #93a1a1;
+  --muted: #6c8189;
+  --faint: #586e75;
+  --accent: #268bd2;
+  --accent-strong: #3a9be0;
+  --accent-soft: #0b4460;
+  --on-accent: #fdf6e3;
+  --good: #98ad10;
+  --good-soft: #173b2a;
+  --warn: #c99a0c;
+  --warn-soft: #3a3410;
+  --bad: #e5534f;
+  --bad-soft: #4a1f22;
+  --mark: #cb4b16;
+  --pdf-bg: #001f27;
+  --code-bg: rgba(147, 161, 161, 0.15);
+  --shadow: rgba(0, 0, 0, 0.5);
+
+  --editor-bg: #002b36;
+  --selection: #174a59;
+  --active-line: #073642;
+  --cursor: #93a1a1;
+  --add-bg: #14402f;
+  --del-bg: #4a2226;
+  --syn-command: #268bd2;
+  --syn-keyword: #859900;
+  --syn-atom: #2aa198;
+  --syn-comment: #586e75;
+  --syn-string: #2aa198;
+  --syn-number: #d33682;
+  --syn-bracket: #6c8189;
+  --syn-math: #b58900;
+}
+
+:root[data-theme='dracula'] {
+  color-scheme: dark;
+  --bg: #21222c;
+  --panel: #282a36;
+  --panel-2: #2d2f3d;
+  --border: #44475a;
+  --border-strong: #6272a4;
+  --hover: #343746;
+  --text: #f8f8f2;
+  --muted: #a4a9c4;
+  --faint: #6272a4;
+  --accent: #bd93f9;
+  --accent-strong: #caa6fc;
+  --accent-soft: #3b3554;
+  --on-accent: #282a36;
+  --good: #50fa7b;
+  --good-soft: #23402f;
+  --warn: #f1fa8c;
+  --warn-soft: #45462a;
+  --bad: #ff6e6e;
+  --bad-soft: #4d2a31;
+  --mark: #ffb86c;
+  --pdf-bg: #1c1d26;
+  --code-bg: rgba(248, 248, 242, 0.1);
+  --shadow: rgba(0, 0, 0, 0.55);
+
+  --editor-bg: #282a36;
+  --selection: #44475a;
+  --active-line: #2f3140;
+  --cursor: #f8f8f2;
+  --add-bg: #24402f;
+  --del-bg: #4d2a31;
+  --syn-command: #ff79c6;
+  --syn-keyword: #bd93f9;
+  --syn-atom: #8be9fd;
+  --syn-comment: #6272a4;
+  --syn-string: #f1fa8c;
+  --syn-number: #bd93f9;
+  --syn-bracket: #a4a9c4;
+  --syn-math: #50fa7b;
+}
+
+:root[data-theme='nord'] {
+  color-scheme: dark;
+  --bg: #272c36;
+  --panel: #2e3440;
+  --panel-2: #323845;
+  --border: #434c5e;
+  --border-strong: #4c566a;
+  --hover: #3b4252;
+  --text: #d8dee9;
+  --muted: #9aa5b8;
+  --faint: #616e88;
+  --accent: #88c0d0;
+  --accent-strong: #9fd0de;
+  --accent-soft: #364a56;
+  --on-accent: #2e3440;
+  --good: #a3be8c;
+  --good-soft: #37443a;
+  --warn: #ebcb8b;
+  --warn-soft: #4a4433;
+  --bad: #d5838b;
+  --bad-soft: #4a3138;
+  --mark: #d08770;
+  --pdf-bg: #242933;
+  --code-bg: rgba(216, 222, 233, 0.1);
+  --shadow: rgba(0, 0, 0, 0.5);
+
+  --editor-bg: #2e3440;
+  --selection: #434c5e;
+  --active-line: #333a47;
+  --cursor: #d8dee9;
+  --add-bg: #37443a;
+  --del-bg: #4a3138;
+  --syn-command: #81a1c1;
+  --syn-keyword: #b48ead;
+  --syn-atom: #8fbcbb;
+  --syn-comment: #616e88;
+  --syn-string: #a3be8c;
+  --syn-number: #b48ead;
+  --syn-bracket: #9aa5b8;
+  --syn-math: #ebcb8b;
+}
+
+:root[data-theme='gruvbox-dark'] {
+  color-scheme: dark;
+  --bg: #1d2021;
+  --panel: #282828;
+  --panel-2: #32302f;
+  --border: #504945;
+  --border-strong: #665c54;
+  --hover: #3c3836;
+  --text: #ebdbb2;
+  --muted: #a89984;
+  --faint: #7c6f64;
+  --accent: #83a598;
+  --accent-strong: #9bbcae;
+  --accent-soft: #3a4a47;
+  --on-accent: #282828;
+  --good: #b8bb26;
+  --good-soft: #3a3d1e;
+  --warn: #fabd2f;
+  --warn-soft: #4a3d17;
+  --bad: #fb6a57;
+  --bad-soft: #4c2420;
+  --mark: #fe8019;
+  --pdf-bg: #1b1d1e;
+  --code-bg: rgba(235, 219, 178, 0.1);
+  --shadow: rgba(0, 0, 0, 0.55);
+
+  --editor-bg: #282828;
+  --selection: #504945;
+  --active-line: #32302f;
+  --cursor: #ebdbb2;
+  --add-bg: #3a3d1e;
+  --del-bg: #4c2420;
+  --syn-command: #83a598;
+  --syn-keyword: #fb4934;
+  --syn-atom: #8ec07c;
+  --syn-comment: #928374;
+  --syn-string: #b8bb26;
+  --syn-number: #d3869b;
+  --syn-bracket: #a89984;
+  --syn-math: #fabd2f;
+}
+
+/* ---------- editor (CodeMirror) ---------- */
+
+.editor-host .cm-editor {
+  background: var(--editor-bg);
+  color: var(--text);
+}
+
+.editor-host .cm-editor .cm-content {
+  caret-color: var(--cursor);
+}
+
+.editor-host .cm-editor .cm-cursor,
+.editor-host .cm-editor .cm-dropCursor {
+  border-left-color: var(--cursor);
+}
+
+.editor-host .cm-editor .cm-selectionBackground,
+.editor-host .cm-editor.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground {
+  background: var(--selection) !important;
+}
+
+.editor-host .cm-editor .cm-activeLine {
+  background: var(--active-line);
+}
+
+.editor-host .cm-editor .cm-gutters {
+  background: var(--panel-2);
+  border-right: 1px solid var(--border);
+  color: var(--faint);
+}
+
+.editor-host .cm-editor .cm-activeLineGutter {
+  background: var(--active-line);
+  color: var(--muted);
+}
+
+.editor-host .cm-editor .cm-matchingBracket {
+  background: var(--accent-soft);
+  outline: 1px solid var(--border-strong);
+  color: inherit;
+}
+
+.editor-host .cm-editor .cm-selectionMatch {
+  background: var(--accent-soft);
+}
+
+.editor-host .cm-editor .cm-searchMatch {
+  background: var(--warn-soft);
+  outline: 1px solid var(--warn);
+}
+
+.editor-host .cm-editor .cm-foldPlaceholder {
+  background: var(--hover);
+  border-color: var(--border);
+  color: var(--muted);
+}
+
+.editor-host .cm-editor .cm-panels,
+.editor-host .cm-editor .cm-tooltip {
+  background: var(--panel-2);
+  color: var(--text);
+  border-color: var(--border);
+}
+
+.editor-host .cm-editor .cm-panels input,
+.editor-host .cm-editor .cm-panels button {
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.editor-host .cm-editor .cm-tooltip-autocomplete ul li[aria-selected] {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+/* Review diff */
+
+.editor-host .cm-editor .cm-changedLine,
+.editor-host .cm-editor .cm-insertedLine {
+  background: var(--add-bg);
+}
+
+.editor-host .cm-editor .cm-deletedChunk,
+.editor-host .cm-editor .cm-deletedLine {
+  background: var(--del-bg);
+}
+
+.editor-host .cm-editor .cm-changedLineGutter {
+  background: var(--good);
+}
+
+.editor-host .cm-editor .cm-deletedLineGutter {
+  background: var(--bad);
+}
+
+/* ---------- theme picker ---------- */
+
+.theme-select {
+  font: inherit;
+  font-size: 12px;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel);
+  padding: 3px 4px;
+}

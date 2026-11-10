@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { basicSetup } from 'codemirror';
 import { Annotation, Compartment, EditorState } from '@codemirror/state';
 import { EditorView, keymap } from '@codemirror/view';
-import { StreamLanguage } from '@codemirror/language';
+import { HighlightStyle, StreamLanguage, syntaxHighlighting } from '@codemirror/language';
+import { tags } from '@lezer/highlight';
 import { stex } from '@codemirror/legacy-modes/mode/stex';
 import { getOriginalDoc, unifiedMergeView } from '@codemirror/merge';
 
@@ -30,6 +31,21 @@ interface Props {
   onShowInPdf: (path: string, line: number) => void;
   onSelection: (selection: EditorSelection | null) => void;
 }
+
+/** Syntax colours come from CSS variables, so switching theme needs no editor reconfiguration. */
+const highlight = syntaxHighlighting(
+  HighlightStyle.define([
+    { tag: tags.tagName, color: 'var(--syn-command)' },
+    { tag: tags.keyword, color: 'var(--syn-keyword)' },
+    { tag: [tags.atom, tags.standard(tags.variableName)], color: 'var(--syn-atom)' },
+    { tag: tags.comment, color: 'var(--syn-comment)', fontStyle: 'italic' },
+    { tag: tags.string, color: 'var(--syn-string)' },
+    { tag: tags.number, color: 'var(--syn-number)' },
+    { tag: tags.bracket, color: 'var(--syn-bracket)' },
+    { tag: [tags.special(tags.variableName), tags.meta], color: 'var(--syn-math)' },
+    { tag: tags.invalid, color: 'var(--bad)' },
+  ]),
+);
 
 /** Marks transactions that load content from outside, so they are not saved back. */
 const External = Annotation.define<boolean>();
@@ -80,6 +96,7 @@ export function Editor({ doc, jump, onSave, onBaseline, onShowInPdf, onSelection
   const extensions = (review: boolean, baseline: string) => [
     basicSetup,
     StreamLanguage.define(stex),
+    highlight,
     EditorView.lineWrapping,
     keymap.of([
       {
