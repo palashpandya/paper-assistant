@@ -12,7 +12,7 @@ A local web app for writing LaTeX papers with an AI agent: editor, live PDF prev
 npm run dev                      # server (node --watch) + Vite at http://localhost:5173, on examples/sample
 PAPER=/path/to/paper npm run dev # same, on another project
 npm run build                    # vite build -> dist/, tsc -> dist-server/
-npm start -- <folder> [--port N] [--no-open]   # run the built app (bin/paper-assistant.js)
+npm start -- <folder> [--port N] [--no-open]   # run the built app in the foreground (bin/paper-assistant.js --foreground)
 npm run typecheck                # front end and server tsconfigs
 npm run release                  # build and pack release/paper-assistant-<version>.tgz
 ```
@@ -29,6 +29,8 @@ Written in TypeScript and run two ways: directly by Node's type stripping in dev
 
 - Only erasable TypeScript syntax: no constructor parameter properties, enums or namespaces (`erasableSyntaxOnly` enforces this).
 - Relative imports use the `.ts` extension; the build rewrites them.
+
+`cli.ts` is the `paper-assistant` command (what `bin/` runs). By default it spawns `index.ts` as a detached background process, waits until it is listening and returns; `--foreground` imports it in-process instead (`npm start` and `npm run dev` stay in the foreground). `instances.ts` keeps one record per running server in `~/.paper-assistant/running/<pid>.json` (`pid`, `port`, `root`), which is how `paper-assistant stop` and `list` find them and how a second start on the same paper reuses the first. A record counts only if its port answers `/api/state` with the same root; stopping goes through `POST /api/quit` rather than signals, so a stale record can never kill an unrelated process. `/api/quit` also serves the Quit button and broadcasts `{type: 'quit'}` so open tabs show that the app was closed.
 
 `index.ts` wires everything: Express API under `/api`, a WebSocket at `/ws` that broadcasts state changes, and a chokidar watcher. It binds to `127.0.0.1` and rejects non-local `Host`/`Origin` headers; keep that check on any new route or socket.
 

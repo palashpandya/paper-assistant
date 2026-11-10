@@ -124,7 +124,8 @@ export type ServerMsg =
   | { type: 'compile'; status: 'compiling' }
   | { type: 'compile'; status: 'done'; result: CompileResult }
   | { type: 'fileChanged'; path: string; content: string; baseline: string }
-  | { type: 'agent'; event: AgentEvent };
+  | { type: 'agent'; event: AgentEvent }
+  | { type: 'quit' };
 
 export interface AppState {
   root: string;
@@ -169,6 +170,7 @@ export interface Symbols {
 
 export const api = {
   state: () => call<AppState>('/api/state'),
+  quit: () => post('/api/quit'),
   symbols: () => call<Symbols>('/api/symbols'),
   texInstalled: () => call<{ packages: string[]; classes: string[] }>('/api/tex-installed'),
   readFile: (path: string) => call<{ content: string; baseline: string }>(`/api/file?${q(path)}`),

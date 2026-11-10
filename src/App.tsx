@@ -26,6 +26,8 @@ export function App() {
   const [pdfChips, setPdfChips] = useState<ContextChip[]>([]);
   const [selection, setSelection] = useState<EditorSelection | null>(null);
   const [connected, setConnected] = useState(true);
+  /** The app was closed (Quit here, or `paper-assistant stop`): nothing more will come from the server. */
+  const [stopped, setStopped] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [theme, setTheme] = useState<ThemeId>(savedTheme);
   const [threads, setThreads] = useState<Thread[]>([]);
@@ -97,6 +99,9 @@ export function App() {
         if (msg.path === live.current.active) {
           setDoc({ path: msg.path, content: msg.content, baseline: msg.baseline, version: ++version.current });
         }
+      } else if (msg.type === 'quit') {
+        setStopped(true);
+        channel.current?.post({ type: 'close' });
       } else if (msg.type === 'agent') {
         const ev = msg.event;
         if (ev.kind === 'start') {
@@ -128,7 +133,10 @@ export function App() {
     };
     return connect(onMsg, (up) => {
       setConnected(up);
-      if (up) void refresh().catch(() => {});
+      if (up) {
+        setStopped(false); // Started again: carry on in this tab.
+        void refresh().catch(() => {});
+      }
     });
   }, [refresh]);
 
@@ -316,6 +324,12 @@ export function App() {
   const detachPdf = useCallback(() => {
     if (!channel.current || !openPdfTab()) flash('The browser blocked the new tab.');
   }, [flash]);
+
+  const quit = () => {
+    if (busy && !window.confirm('The agent is still working. Quit and stop it?')) return;
+    // Leave a moment for the last keystrokes to be saved.
+    setTimeout(() => void api.quit().catch(() => {}), 400);
+  };
 
   const dockPdf = () => {
     channel.current?.post({ type: 'close' });
@@ -516,6 +530,17 @@ export function App() {
 
   return (
     <div className="app">
+      {stopped && (
+        <div className="stopped">
+          <div className="stopped-box">
+            <strong>Paper Assistant has been closed.</strong>
+            <p>
+              Your paper is saved. To open it again, run <code>paper-assistant</code> in its folder; this tab will pick up where it was. Otherwise you
+              can close the tab.
+            </p>
+          </div>
+        </div>
+      )}
       <header className="topbar">
         <button
           className={`btn small icon ${sidebarOpen ? 'on' : ''}`}
@@ -593,12 +618,15 @@ export function App() {
             Dock PDF
           </button>
         )}
-        {!connected && <span className="status bad">Disconnected from server</span>}
+        {!connected && !stopped && <span className="status bad">Disconnected from server</span>}
         <button className={`status ${status.cls}`} onClick={() => setShowLog((v) => !v)} title="Show build output">
           {status.text}
         </button>
         <button className="btn small" onClick={() => void api.compile()} disabled={compiling}>
           Rebuild
+        </button>
+        <button className="btn small" onClick={quit} title="Close Paper Assistant. Start it again with the paper-assistant command.">
+          Quit
         </button>
       </header>
 

@@ -15,6 +15,7 @@ import { Compiler } from './compiler.ts';
 import { Settings, claudeAccounts } from './settings.ts';
 import { Project, isAssetFile, isSkippedDir, isTextFile } from './project.ts';
 import { forward, reverse } from './synctex.ts';
+import { openBrowser, register, unregister } from './instances.ts';
 import { projectSymbols, texInstalled } from './symbols.ts';
 
 // ---------- command line ----------
@@ -25,19 +26,7 @@ const option = (name: string) => {
   const i = argv.indexOf(name);
   return i >= 0 ? argv[i + 1] : undefined;
 };
-if (flag('--help') || flag('-h')) {
-  console.log(`Usage: paper-assistant [folder] [--port <number>] [--no-open]
-
-  folder      The LaTeX project to open (default: the current folder)
-  --port      Port to listen on (default: 4317, or the next free one)
-  --no-open   Do not open the browser
-  --version   Print the version`);
-  process.exit(0);
-}
-if (flag('--version') || flag('-v')) {
-  console.log(JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version);
-  process.exit(0);
-}
+// --help, --version and the stop and list commands are handled in cli.ts, which starts this file.
 const positional = argv.filter((a, i) => !a.startsWith('-') && argv[i - 1] !== '--port');
 const PORT = Number(option('--port') ?? process.env.PORT ?? 4317);
 const HOST = '127.0.0.1';
@@ -213,6 +202,13 @@ app.get('/api/state', (_req, res) => {
     claudeConfig: settings.claudeConfig,
     agents: agents.list(),
   });
+});
+
+// Closes the app: the server may have been started in the background, with no terminal to press Ctrl+C in.
+app.post('/api/quit', (_req, res) => {
+  res.json({ ok: true });
+  broadcast({ type: 'quit' });
+  setTimeout(shutdown, 150);
 });
 
 // What the editor's completion offers: the paper's own labels, citation keys, macros and files...
@@ -491,18 +487,6 @@ server.on('upgrade', (req, socket, head) => {
   });
 });
 
-const openBrowser = (url: string) => {
-  const [cmd, args] =
-    process.platform === 'darwin' ? ['open', [url]] : process.platform === 'win32' ? ['cmd', ['/c', 'start', '', url]] : ['xdg-open', [url]];
-  try {
-    spawn(cmd as string, args as string[], { stdio: 'ignore', detached: true })
-      .on('error', () => {})
-      .unref();
-  } catch {
-    // No browser launcher; the URL is printed instead.
-  }
-};
-
 // If the port is taken (another paper is open), use the next free one.
 let port = PORT;
 server.on('error', (err: NodeJS.ErrnoException) => {
@@ -524,6 +508,7 @@ server.on('listening', () => {
   } else {
     console.log(`API on ${url} (run the Vite dev server for the UI)`);
   }
+  register(port, project.root);
   // Say what is missing now, rather than at the first build or the first message to the agent.
   const onPath = (cmd: string) => spawnSync('which', [cmd], { stdio: 'ignore' }).status === 0;
   if (!onPath('pdflatex')) console.warn('Warning: pdflatex was not found. Install a TeX distribution (TeX Live or MacTeX) to build the PDF.');
@@ -533,9 +518,10 @@ server.on('listening', () => {
 });
 server.listen(port, HOST);
 
-const shutdown = () => {
+function shutdown() {
   agents.stop();
+  unregister();
   process.exit(0);
-};
+}
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);

@@ -880,6 +880,32 @@ button.issue:not(:disabled):hover {
   z-index: 30;
 }
 
+/* ---------- after Quit ---------- */
+
+.stopped {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--bg) 80%, transparent);
+}
+
+.stopped-box {
+  max-width: 420px;
+  padding: 20px 24px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 4px 16px var(--shadow);
+}
+
+.stopped-box p {
+  margin: 8px 0 0;
+  color: var(--muted);
+}
+
 /* ---------- agent pane tabs ---------- */
 
 .chat-pane {

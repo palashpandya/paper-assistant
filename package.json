@@ -11,7 +11,7 @@
     "dev": "concurrently -k -n server,web \"node --watch server/index.ts ${PAPER:-examples/sample} --no-open\" \"vite\"",
     "build": "vite build && tsc -p server/tsconfig.build.json",
     "prepare": "npm run build",
-    "start": "node bin/paper-assistant.js",
+    "start": "node bin/paper-assistant.js --foreground",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p server/tsconfig.json",
     "release": "node -e \"fs.mkdirSync('release',{recursive:true})\" && npm pack --pack-destination release"
   },

@@ -25,7 +25,14 @@ cd /path/to/your/paper
 paper-assistant
 ```
 
-This opens the paper in your browser. Options: `paper-assistant [folder] [--port <number>] [--no-open] [--version]`. If the port is taken, for example because another paper is open, the next free one is used. On starting, it says so if `pdflatex`, `synctex` or an agent CLI is missing.
+This opens the paper in your browser and gives you the terminal back: the app keeps running in the background, also after the terminal is closed. To close it, click Quit in the app's top bar, or:
+
+```sh
+paper-assistant stop          # in the paper's folder; or: paper-assistant stop /path/to/paper, or --all
+paper-assistant list          # the papers that are open, with their addresses
+```
+
+Running `paper-assistant` again on a paper that is already open just shows it. Options: `paper-assistant [folder] [--port <number>] [--no-open] [--foreground] [--version]`. `--foreground` keeps the app attached to the terminal, where Ctrl+C closes it. If the port is taken, for example because another paper is open, the next free one is used. On starting, it says so if `pdflatex`, `synctex` or an agent CLI is missing. What a background app would have printed afterwards goes to `~/.paper-assistant/logs/`.
 
 To update, install the newer file the same way. To remove it: `npm uninstall -g paper-assistant`.
 
