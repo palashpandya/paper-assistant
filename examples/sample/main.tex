@@ -1,0 +1,34 @@
+\documentclass[11pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath}
+\usepackage[numbers]{natbib}
+
+\title{A Sample Paper}
+\author{Paper Assistant}
+\date{}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+This is a small sample project for trying the editor. Edit the source on the
+left, watch the PDF rebuild on the right, and ask the agent to make changes.
+\end{abstract}
+
+\section{Introduction}
+\input{sections/intro}
+
+\section{Method}
+The energy of the system is given by
+\begin{equation}
+  E = \frac{1}{2} m v^2 + V(x),
+  \label{eq:energy}
+\end{equation}
+where $V(x)$ is the potential. Equation~\eqref{eq:energy} is conserved.
+
+\section{Conclusion}
+We conclude that the tool works.
+
+\bibliographystyle{plainnat}
+\bibliography{refs}
+\end{document}

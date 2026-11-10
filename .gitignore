@@ -1,0 +1,17 @@
+node_modules/
+dist/
+.paper-assistant/
+# LaTeX build output
+*.aux
+*.log
+*.out
+*.toc
+*.bbl
+*.blg
+*.bcf
+*.run.xml
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+examples/**/*.pdf
+dist-server/
