@@ -21,6 +21,8 @@ Run `npm test` for unit and server integration tests, `npm run test:browser` for
 
 Users install the release tarball with `npm install -g ./paper-assistant-<version>.tgz`. It ships `dist/` and `dist-server/` prebuilt, so only what the server imports at run time (`express`, `ws`, `chokidar`) belongs in `dependencies`; everything the browser uses is bundled by Vite and stays in `devDependencies`.
 
+The `katex` npm override makes the Markdown plugins use the app's patched KaTeX version instead of their older transitive copies. Keep the browser math-rendering test passing when updating it. Vite splits PDF.js, CodeMirror, KaTeX and other vendor code into separate chunks; do not hide bundle-size warnings by raising the warning threshold.
+
 `npm start` serves `dist/` and runs `dist-server/`, so rebuild after changes. `prepare` runs the build, so `npm install` and `npm pack` build too.
 
 ## Server (`server/`)
