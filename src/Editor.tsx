@@ -8,6 +8,8 @@ import { stex } from '@codemirror/legacy-modes/mode/stex';
 import { getOriginalDoc, unifiedMergeView } from '@codemirror/merge';
 import { latexCompletion } from './latexComplete';
 import { mathPairs } from './latexInput';
+import { CONFLICT_START, mergeContents } from './fileSync';
+import type { FileSaveResult } from './api';
 
 export interface EditorDoc {
   path: string;
@@ -28,7 +30,7 @@ export interface EditorSelection {
 interface Props {
   doc: EditorDoc | null;
   jump: { path: string; line: number; nonce: number } | null;
-  onSave: (path: string, content: string) => void;
+  onSave: (path: string, content: string, expected: string) => Promise<FileSaveResult>;
   onBaseline: (path: string, content: string) => void;
   onShowInPdf: (path: string, line: number) => void;
   onSelection: (selection: EditorSelection | null) => void;
@@ -61,11 +63,17 @@ export function Editor({ doc, jump, onSave, onBaseline, onShowInPdf, onSelection
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
   const [reviewing, setReviewing] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [conflicted, setConflicted] = useState(false);
+  const [saveFinished, setSaveFinished] = useState(0);
 
   // Mutable state the CodeMirror listeners read; kept in refs so the view is created once.
   const s = useRef({
     path: null as string | null,
     baseline: '',
+    diskContent: '',
+    saving: false,
+    loadedVersion: -1,
     reviewing: false,
     saveTimer: undefined as ReturnType<typeof setTimeout> | undefined,
     review: new Compartment(),
@@ -79,15 +87,68 @@ export function Editor({ doc, jump, onSave, onBaseline, onShowInPdf, onSelection
     setReviewing(on);
   };
 
-  const flushSave = () => {
+  const scheduleSave = () => {
+    clearTimeout(s.current.saveTimer);
+    s.current.saveTimer = setTimeout(() => void flushSave(), 300);
+  };
+
+  const flushSave = async () => {
     const st = s.current;
     const view = viewRef.current;
-    if (!st.saveTimer || !view || !st.path) return;
+    if (!st.saveTimer || !view || !st.path || st.saving) return;
     clearTimeout(st.saveTimer);
     st.saveTimer = undefined;
     const content = view.state.doc.toString();
-    if (!st.reviewing) st.baseline = content;
-    st.cb.onSave(st.path, content);
+    const path = st.path;
+    const expected = st.diskContent;
+    st.saving = true;
+    let succeeded = false;
+    try {
+      const result = await st.cb.onSave(path, content, expected);
+      succeeded = true;
+      if (st.path === path && st.diskContent === expected) {
+        if (result.saved) {
+          st.diskContent = content;
+          st.baseline = result.baseline;
+        } else applyRemote(result.content, result.baseline);
+      }
+      setSaveError(null);
+    } catch (err) {
+      setSaveError(`Could not save: ${(err as Error).message}. Your edits are still in the editor.`);
+    } finally {
+      st.saving = false;
+      if ((succeeded || st.path !== path) && viewRef.current && viewRef.current.state.doc.toString() !== st.diskContent) scheduleSave();
+      if (succeeded) setSaveFinished((n) => n + 1);
+    }
+  };
+
+  const applyRemote = (content: string, baseline: string) => {
+    const st = s.current;
+    const view = viewRef.current;
+    if (!view) return;
+    const current = view.state.doc.toString();
+    const next = mergeContents(st.diskContent, current, content);
+    st.diskContent = content;
+    clearTimeout(st.saveTimer);
+    st.saveTimer = undefined;
+    let start = 0;
+    const max = Math.min(current.length, next.length);
+    while (start < max && current.charCodeAt(start) === next.charCodeAt(start)) start++;
+    let endCur = current.length;
+    let endNext = next.length;
+    while (endCur > start && endNext > start && current.charCodeAt(endCur - 1) === next.charCodeAt(endNext - 1)) {
+      endCur--;
+      endNext--;
+    }
+    st.baseline = baseline;
+    const review = next !== baseline;
+    setReview(review);
+    view.dispatch({
+      changes: { from: start, to: endCur, insert: next.slice(start, endNext) },
+      annotations: External.of(true),
+      effects: st.review.reconfigure(review ? reviewExtension(baseline) : []),
+    });
+    if (next !== content) scheduleSave();
   };
 
   const endReview = () => {
@@ -122,8 +183,7 @@ export function Editor({ doc, jump, onSave, onBaseline, onShowInPdf, onSelection
     EditorView.updateListener.of((u) => {
       const st = s.current;
       if (u.docChanged && !u.transactions.some((t) => t.annotation(External))) {
-        clearTimeout(st.saveTimer);
-        st.saveTimer = setTimeout(flushSave, 300);
+        scheduleSave();
       }
       if (st.reviewing && st.path) {
         const original = getOriginalDoc(u.state).toString();
@@ -135,6 +195,7 @@ export function Editor({ doc, jump, onSave, onBaseline, onShowInPdf, onSelection
         if (original === u.state.doc.toString()) setTimeout(endReview);
       }
       if (u.selectionSet || u.docChanged) {
+        setConflicted(u.state.doc.toString().includes(CONFLICT_START));
         const sel = u.state.selection.main;
         st.cb.onSelection({
           line: u.state.doc.lineAt(sel.head).number,
@@ -150,7 +211,7 @@ export function Editor({ doc, jump, onSave, onBaseline, onShowInPdf, onSelection
     const view = new EditorView({ parent: hostRef.current!, state: EditorState.create({ doc: '' }) });
     viewRef.current = view;
     return () => {
-      flushSave();
+      void flushSave();
       view.destroy();
       viewRef.current = null;
     };
@@ -165,9 +226,20 @@ export function Editor({ doc, jump, onSave, onBaseline, onShowInPdf, onSelection
     const review = doc.content !== doc.baseline;
 
     if (doc.path !== st.path) {
-      flushSave();
+      // Finish the old file before replacing its buffer, including edits typed
+      // while its previous save was in flight.
+      if (st.saving) return;
+      if (st.path && view.state.doc.toString() !== st.diskContent) {
+        scheduleSave();
+        void flushSave();
+        return;
+      }
       st.path = doc.path;
       st.baseline = doc.baseline;
+      st.diskContent = doc.content;
+      st.loadedVersion = doc.version;
+      setSaveError(null);
+      setConflicted(doc.content.includes(CONFLICT_START));
       setReview(review);
       // A fresh state per file keeps undo history from crossing files.
       view.setState(EditorState.create({ doc: doc.content, extensions: extensions(review, doc.baseline) }));
@@ -175,29 +247,12 @@ export function Editor({ doc, jump, onSave, onBaseline, onShowInPdf, onSelection
       return;
     }
 
-    // Same file changed on disk (usually the agent): drop any unsaved keystrokes and apply a minimal change.
-    clearTimeout(st.saveTimer);
-    st.saveTimer = undefined;
-    const current = view.state.doc.toString();
-    const next = doc.content;
-    let start = 0;
-    const max = Math.min(current.length, next.length);
-    while (start < max && current.charCodeAt(start) === next.charCodeAt(start)) start++;
-    let endCur = current.length;
-    let endNext = next.length;
-    while (endCur > start && endNext > start && current.charCodeAt(endCur - 1) === next.charCodeAt(endNext - 1)) {
-      endCur--;
-      endNext--;
+    if (st.loadedVersion !== doc.version) {
+      st.loadedVersion = doc.version;
+      applyRemote(doc.content, doc.baseline);
     }
-    st.baseline = doc.baseline;
-    setReview(review);
-    view.dispatch({
-      changes: { from: start, to: endCur, insert: next.slice(start, endNext) },
-      annotations: External.of(true),
-      effects: st.review.reconfigure(review ? reviewExtension(doc.baseline) : []),
-    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [doc?.path, doc?.version]);
+  }, [doc?.path, doc?.version, saveFinished]);
 
   // Jump to a line (from the PDF or the error list) once the right file is loaded.
   useEffect(() => {
@@ -257,6 +312,8 @@ export function Editor({ doc, jump, onSave, onBaseline, onShowInPdf, onSelection
           Show in PDF
         </button>
       </div>
+      {saveError && <div className="bar" role="alert">{saveError} <button className="btn small" onClick={() => { scheduleSave(); }}>Retry save</button></div>}
+      {conflicted && <div className="bar" role="alert">Both versions were kept between conflict markers. Resolve the marked text to restore a valid LaTeX file.</div>}
       <div className="editor-host" ref={hostRef} />
     </div>
   );

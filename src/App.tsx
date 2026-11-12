@@ -56,6 +56,7 @@ export function App() {
   const channel = useRef<TabChannel | null>(null);
   const gridRef = useRef<HTMLDivElement>(null);
   const version = useRef(0);
+  const [reloadFile, setReloadFile] = useState(0);
   const chipId = useRef(0);
   const live = useRef({ active, files });
   live.current = { active, files };
@@ -74,11 +75,12 @@ export function App() {
     setCompile(st.compile);
     setAgents(st.agents);
     setAccounts({ list: st.claudeAccounts, current: st.claudeConfig });
+    setActive((a) => st.files.some((f) => f.path === a) ? a : st.main ?? st.files[0]?.path ?? null);
+    setReloadFile((n) => n + 1);
     setThreads((await api.threads()).threads);
     setBusy(st.agentBusy);
     // The server keeps the conversation, so a reload or a restart picks it up where it was.
     setMessages((await api.chat()).messages);
-    setActive((a) => a ?? st.main ?? st.files[0]?.path ?? null);
   }, []);
 
   // Live updates from the server.
@@ -144,18 +146,19 @@ export function App() {
   useEffect(() => {
     if (!active) return;
     let cancelled = false;
+    const requestedVersion = version.current;
     api.readFile(active).then(
-      (f) => !cancelled && setDoc({ path: active, ...f, version: ++version.current }),
+      (f) => !cancelled && requestedVersion === version.current && setDoc({ path: active, ...f, version: ++version.current }),
       (err) => !cancelled && flash(err.message),
     );
     return () => {
       cancelled = true;
     };
-  }, [active, flash]);
+  }, [active, flash, reloadFile]);
 
   const onSave = useCallback(
-    (path: string, content: string) => void api.writeFile(path, content).catch((e) => flash(`Could not save: ${e.message}`)),
-    [flash],
+    (path: string, content: string, expected: string) => api.writeFile(path, content, expected),
+    [],
   );
   const onBaseline = useCallback(
     (path: string, content: string) => void api.setBaseline(path, content).catch((e) => flash(e.message)),

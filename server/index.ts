@@ -58,7 +58,7 @@ const compiler = new Compiler(
     // The text may have moved in the new PDF; annotations follow it.
     void broadcastAnnotations();
     // Handle file events that arrived mid-build, now that we know which files the build itself wrote.
-    for (const [event, abs] of deferred.splice(0)) onFileEvent(event, abs);
+    for (const [event, abs] of deferred.splice(0)) processFileEvent(event, abs);
     for (const fn of afterBuild.splice(0)) fn();
   },
 );
@@ -122,6 +122,10 @@ function onFileEvent(event: string, abs: string) {
     deferred.push([event, abs]);
     return;
   }
+  processFileEvent(event, abs);
+}
+
+function processFileEvent(event: string, abs: string) {
   if (compiler.generated.has(abs) || abs === compiler.pdfPath() || /-converted-to\.pdf$/.test(abs)) return;
   const rel = project.rel(abs);
   if (isTextFile(abs)) {
@@ -228,7 +232,12 @@ app.get('/api/file', (req, res) => {
 app.put('/api/file', (req, res) => {
   const rel = relPath(req);
   if (typeof req.body?.content !== 'string') throw new Error('Missing content');
-  const result = project.writeFromClient(rel, req.body.content);
+  if (typeof req.body?.expected !== 'string') throw new Error('Missing expected content');
+  const result = project.writeFromClient(rel, req.body.content, req.body.expected);
+  if (!result.saved) {
+    res.status(409).json(result);
+    return;
+  }
   broadcastFiles();
   scheduleCompile();
   res.json(result);

@@ -13,6 +13,7 @@
     "prepare": "npm run build",
     "start": "node bin/paper-assistant.js --foreground",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p server/tsconfig.json",
+    "test": "node --test --test-isolation=none tests/*.test.mjs",
     "release": "node -e \"fs.mkdirSync('release',{recursive:true})\" && npm pack --pack-destination release"
   },
   "dependencies": {

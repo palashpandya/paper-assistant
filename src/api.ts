@@ -141,10 +141,12 @@ export interface AppState {
   claudeConfig: string | null;
 }
 
-async function call<T>(url: string, init?: RequestInit): Promise<T> {
+export type FileSaveResult = { saved: true; baseline: string } | { saved: false; content: string; baseline: string };
+
+async function call<T>(url: string, init?: RequestInit, acceptedStatus?: number): Promise<T> {
   const res = await fetch(url, init);
   const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(body.error ?? `Request failed (${res.status})`);
+  if (!res.ok && res.status !== acceptedStatus) throw new Error(body.error ?? `Request failed (${res.status})`);
   return body as T;
 }
 
@@ -174,12 +176,12 @@ export const api = {
   symbols: () => call<Symbols>('/api/symbols'),
   texInstalled: () => call<{ packages: string[]; classes: string[] }>('/api/tex-installed'),
   readFile: (path: string) => call<{ content: string; baseline: string }>(`/api/file?${q(path)}`),
-  writeFile: (path: string, content: string) =>
-    call<{ baseline: string }>(`/api/file?${q(path)}`, {
+  writeFile: (path: string, content: string, expected: string) =>
+    call<FileSaveResult>(`/api/file?${q(path)}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ content }),
-    }),
+      body: JSON.stringify({ content, expected }),
+    }, 409),
   setBaseline: (path: string, content: string) => post(`/api/baseline?${q(path)}`, { content }),
   compile: () => post('/api/compile'),
   forward: (path: string, line: number) =>
