@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 import net from 'node:net';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
@@ -31,7 +32,7 @@ export async function stopChild(child) {
   try { await closed; } finally { clearTimeout(timer); }
 }
 export async function startApp() {
-  const temp = fs.mkdtempSync('/tmp/paper-app-test-');
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'paper-app-test-'));
   const root = path.join(temp, 'paper');
   const bin = path.join(temp, 'bin');
   fs.mkdirSync(root);

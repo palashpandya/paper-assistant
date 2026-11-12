@@ -141,7 +141,8 @@ export function Editor({ doc, jump, onSave, onBaseline, onShowInPdf, onSelection
       endNext--;
     }
     st.baseline = baseline;
-    const review = next !== baseline;
+    // Local typing alone is already reviewed; only incoming disk edits need diff controls.
+    const review = content !== baseline;
     setReview(review);
     view.dispatch({
       changes: { from: start, to: endCur, insert: next.slice(start, endNext) },
