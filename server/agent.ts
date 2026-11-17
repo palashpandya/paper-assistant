@@ -1,5 +1,8 @@
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import readline from 'node:readline';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 export type AgentEvent =
   | { kind: 'start'; agent: string }
@@ -8,6 +11,48 @@ export type AgentEvent =
   | { kind: 'done'; error?: string };
 
 export type AgentName = 'claude' | 'codex';
+
+export interface AgentOptions {
+  model?: string;
+  effort?: string;
+}
+
+const EFFORTS = {
+  claude: ['low', 'medium', 'high', 'xhigh', 'max'],
+  codex: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
+};
+
+/** Use the installed CLI's catalog rather than pinning model names that go stale. */
+export function agentModels(name: AgentName): { id: string; label: string; efforts: string[] }[] {
+  if (name === 'claude') return ['sonnet', 'opus', 'haiku', 'fable'].map((id) => ({ id, label: id[0].toUpperCase() + id.slice(1), efforts: EFFORTS.claude }));
+  try {
+    const home = process.env.CODEX_HOME ?? path.join(os.homedir(), '.codex');
+    const cache = JSON.parse(fs.readFileSync(path.join(home, 'models_cache.json'), 'utf8'));
+    return cache.models.filter((m: any) => m.visibility === 'list' && typeof m.slug === 'string').map((m: any) => ({
+      id: m.slug,
+      label: typeof m.display_name === 'string' ? m.display_name : m.slug,
+      efforts: Array.isArray(m.supported_reasoning_levels)
+        ? m.supported_reasoning_levels.map((level: any) => level.effort).filter((e: unknown) => typeof e === 'string')
+        : EFFORTS.codex,
+    }));
+  } catch {
+    return []; // Custom model IDs still work before the CLI has cached its catalog.
+  }
+}
+
+export function parseAgentOptions(name: AgentName, value: unknown): AgentOptions {
+  if (value == null) return {};
+  if (typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid agent settings');
+  const { model, effort } = value as AgentOptions;
+  if (model !== undefined && (typeof model !== 'string' || (model !== '' && !/^[a-zA-Z0-9][\w.:[\]/@+-]{0,199}$/.test(model)))) {
+    throw new Error('Invalid model');
+  }
+  const supported = agentModels(name).find((m) => m.id === model)?.efforts ?? EFFORTS[name];
+  if (effort !== undefined && (typeof effort !== 'string' || (effort !== '' && !supported.includes(effort)))) {
+    throw new Error('Invalid effort for this model');
+  }
+  return { ...(model ? { model } : {}), ...(effort ? { effort } : {}) };
+}
 
 const INSTRUCTIONS = `You are working inside Paper Assistant, a LaTeX editor. The user sees the LaTeX source, the compiled PDF and this chat side by side.
 
@@ -29,7 +74,7 @@ interface Turn {
 interface Backend {
   label: string;
   command: string;
-  args: (sessionId: string | null) => string[];
+  args: (sessionId: string | null, options: AgentOptions) => string[];
   /** Text placed before the user's first message, for CLIs without a system-prompt flag. */
   preamble?: string;
   onMessage: (msg: any, turn: Turn) => void;
@@ -43,7 +88,7 @@ const BACKENDS: Record<AgentName, Backend> = {
   claude: {
     label: 'Claude Code',
     command: process.env.PAPER_ASSISTANT_CLAUDE ?? 'claude',
-    args: (sessionId) => [
+    args: (sessionId, options) => [
       '-p',
       '--output-format', 'stream-json',
       '--verbose',
@@ -51,6 +96,8 @@ const BACKENDS: Record<AgentName, Backend> = {
       '--permission-mode', 'acceptEdits',
       '--append-system-prompt', INSTRUCTIONS,
       ...(sessionId ? ['--resume', sessionId] : []),
+      ...(options.model ? ['--model', options.model] : []),
+      ...(options.effort ? ['--effort', options.effort] : []),
       '--allowedTools', 'Read', 'Edit', 'Write', 'Glob', 'Grep',
     ],
     onMessage(msg, turn) {
@@ -81,12 +128,14 @@ const BACKENDS: Record<AgentName, Backend> = {
   codex: {
     label: 'Codex',
     command: process.env.PAPER_ASSISTANT_CODEX ?? 'codex',
-    args: (sessionId) => [
+    args: (sessionId, options) => [
       'exec',
       ...(sessionId ? ['resume'] : []),
       '--json',
       '--skip-git-repo-check',
       '-c', 'sandbox_mode="workspace-write"',
+      ...(options.model ? ['--model', options.model] : []),
+      ...(options.effort ? ['-c', `model_reasoning_effort=${JSON.stringify(options.effort)}`] : []),
       ...(sessionId ? [sessionId] : []),
       '-',
     ],
@@ -145,6 +194,8 @@ export class Agents {
       name,
       label: BACKENDS[name].label,
       available: installed(BACKENDS[name].command),
+      models: agentModels(name),
+      efforts: EFFORTS[name],
     }));
   }
 
@@ -174,7 +225,7 @@ export class Agents {
   }
 
   /** Starts a turn. `onFinish` receives everything the agent said once it is done. */
-  send(name: AgentName, prompt: string, onFinish?: (text: string, error?: string) => void) {
+  send(name: AgentName, prompt: string, onFinish?: (text: string, error?: string) => void, options: AgentOptions = {}) {
     if (this.child) return;
     const backend = BACKENDS[name];
     const fresh = !this.sessions[name];
@@ -185,8 +236,9 @@ export class Agents {
       const config = this.claudeConfig();
       if (config) env.CLAUDE_CONFIG_DIR = config;
       else delete env.CLAUDE_CONFIG_DIR;
+      if (options.effort) env.CLAUDE_CODE_EFFORT_LEVEL = options.effort;
     }
-    const child = spawn(backend.command, backend.args(this.sessions[name]), {
+    const child = spawn(backend.command, backend.args(this.sessions[name], options), {
       cwd: this.cwd,
       env,
       stdio: ['pipe', 'pipe', 'pipe'],

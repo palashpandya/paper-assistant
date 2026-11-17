@@ -21,6 +21,7 @@ export interface FileInfo {
  */
 export class Project {
   readonly root: string;
+  private readonly realRoot: string;
   /** Last content we saw on disk, per relative path. */
   readonly known = new Map<string, string>();
   /** Content the user has reviewed/accepted, per relative path. */
@@ -34,6 +35,7 @@ export class Project {
     if (!fs.existsSync(this.root) || !fs.statSync(this.root).isDirectory()) {
       throw new Error(`Not a directory: ${this.root}`);
     }
+    this.realRoot = fs.realpathSync(this.root);
     for (const rel of this.walk()) {
       const content = fs.readFileSync(this.abs(rel), 'utf8');
       this.known.set(rel, content);
@@ -45,8 +47,27 @@ export class Project {
   /** Resolve a project-relative path, refusing anything outside the project. */
   abs(rel: string): string {
     const full = path.resolve(this.root, rel);
-    if (full !== this.root && !full.startsWith(this.root + path.sep)) {
+    const within = (root: string, target: string) => {
+      const relative = path.relative(root, target);
+      return relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
+    };
+    if (!within(this.root, full)) {
       throw new Error(`Path escapes project: ${rel}`);
+    }
+    // For a new file, validate the nearest existing parent too. lstat deliberately
+    // detects dangling symlinks, which realpath must reject rather than follow later.
+    let existing = full;
+    while (true) {
+      try {
+        fs.lstatSync(existing);
+        break;
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+        existing = path.dirname(existing);
+      }
+    }
+    if (!within(this.realRoot, fs.realpathSync(existing))) {
+      throw new Error(`Path escapes project through symlink: ${rel}`);
     }
     return full;
   }
@@ -92,17 +113,28 @@ export class Project {
   }
 
   /** A save from the browser editor. User edits advance the baseline unless a review is pending. */
-  writeFromClient(rel: string, content: string): { baseline: string } {
+  writeFromClient(rel: string, content: string, expected: string):
+    | { saved: true; baseline: string }
+    | { saved: false; content: string; baseline: string } {
     const full = this.abs(rel);
+    let disk = '';
+    try {
+      disk = fs.readFileSync(full, 'utf8');
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+    }
+    if (disk !== expected) {
+      return { saved: false, content: disk, baseline: this.baseline.get(rel) ?? '' };
+    }
     const prev = this.known.get(rel);
-    const inReview = prev !== undefined && this.baseline.get(rel) !== prev;
+    const inReview = disk !== (this.baseline.get(rel) ?? '') || (prev !== undefined && this.baseline.get(rel) !== prev);
     fs.mkdirSync(path.dirname(full), { recursive: true });
     fs.writeFileSync(full, content);
     this.known.set(rel, content);
     this.clientWrites.set(rel, content);
     if (!inReview) this.baseline.set(rel, content);
     if (!this.main) this.main = this.findMain();
-    return { baseline: this.baseline.get(rel) ?? '' };
+    return { saved: true, baseline: this.baseline.get(rel) ?? '' };
   }
 
   setBaseline(rel: string, content: string) {

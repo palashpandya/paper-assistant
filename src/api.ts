@@ -92,6 +92,13 @@ export interface AgentInfo {
   name: string;
   label: string;
   available: boolean;
+  models: { id: string; label: string; efforts: string[] }[];
+  efforts: string[];
+}
+
+export interface AgentOptions {
+  model?: string;
+  effort?: string;
 }
 
 /** A saved agent conversation, as listed under History. */
@@ -124,7 +131,8 @@ export type ServerMsg =
   | { type: 'compile'; status: 'compiling' }
   | { type: 'compile'; status: 'done'; result: CompileResult }
   | { type: 'fileChanged'; path: string; content: string; baseline: string }
-  | { type: 'agent'; event: AgentEvent };
+  | { type: 'agent'; event: AgentEvent }
+  | { type: 'quit' };
 
 export interface AppState {
   root: string;
@@ -140,10 +148,12 @@ export interface AppState {
   claudeConfig: string | null;
 }
 
-async function call<T>(url: string, init?: RequestInit): Promise<T> {
+export type FileSaveResult = { saved: true; baseline: string } | { saved: false; content: string; baseline: string };
+
+async function call<T>(url: string, init?: RequestInit, acceptedStatus?: number): Promise<T> {
   const res = await fetch(url, init);
   const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(body.error ?? `Request failed (${res.status})`);
+  if (!res.ok && res.status !== acceptedStatus) throw new Error(body.error ?? `Request failed (${res.status})`);
   return body as T;
 }
 
@@ -156,15 +166,29 @@ const post = (url: string, body?: unknown) =>
 
 const q = (path: string) => `path=${encodeURIComponent(path)}`;
 
+/** What completion offers from the paper itself; mirrors Symbols in server/symbols.ts. */
+export interface Symbols {
+  labels: { name: string; file: string; line: number }[];
+  cites: { key: string; detail: string }[];
+  macros: { name: string; args: number }[];
+  envs: string[];
+  tex: string[];
+  bib: string[];
+  graphics: string[];
+}
+
 export const api = {
   state: () => call<AppState>('/api/state'),
+  quit: () => post('/api/quit'),
+  symbols: () => call<Symbols>('/api/symbols'),
+  texInstalled: () => call<{ packages: string[]; classes: string[] }>('/api/tex-installed'),
   readFile: (path: string) => call<{ content: string; baseline: string }>(`/api/file?${q(path)}`),
-  writeFile: (path: string, content: string) =>
-    call<{ baseline: string }>(`/api/file?${q(path)}`, {
+  writeFile: (path: string, content: string, expected: string) =>
+    call<FileSaveResult>(`/api/file?${q(path)}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ content }),
-    }),
+      body: JSON.stringify({ content, expected }),
+    }, 409),
   setBaseline: (path: string, content: string) => post(`/api/baseline?${q(path)}`, { content }),
   compile: () => post('/api/compile'),
   forward: (path: string, line: number) =>
@@ -172,9 +196,9 @@ export const api = {
   reverse: (page: number, x: number, y: number) =>
     call<{ hit: { path: string; line: number } | null }>(`/api/synctex/reverse?page=${page}&x=${x}&y=${y}`),
   /** `display` and `attached` are what the chat shows for this message; `prompt` is what the agent receives. */
-  send: (agent: string, prompt: string, display: string, attached: string[]) =>
-    post('/api/agent/send', { agent, prompt, display, attached }),
-  sendThreads: (agent: string, threads: number[]) => post('/api/agent/send', { agent, threads }),
+  send: (agent: string, prompt: string, display: string, attached: string[], options: AgentOptions = {}) =>
+    post('/api/agent/send', { agent, prompt, display, attached, options }),
+  sendThreads: (agent: string, threads: number[], options: AgentOptions = {}) => post('/api/agent/send', { agent, threads, options }),
   threads: () => call<{ threads: Thread[] }>('/api/annotations'),
   createThread: (thread: NewThread) =>
     call<{ id: number }>('/api/annotations', {

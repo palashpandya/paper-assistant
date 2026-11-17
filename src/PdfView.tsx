@@ -95,6 +95,11 @@ export const PdfView = forwardRef<PdfHandle, Props>(function PdfView(
   const [pageCount, setPageCount] = useState(0);
   const [menu, setMenu] = useState<SelectionMenu | null>(null);
   const [drawing, setDrawing] = useState(false);
+  const [tool, setTool] = useState<'text' | 'hand'>('text');
+  const [panning, setPanning] = useState(false);
+  const pan = useRef<{ id: number; x: number; y: number; left: number; top: number } | null>(null);
+  const dragged = useRef(false);
+  const zoomTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [note, setNote] = useState('');
   const [saving, setSaving] = useState(false);
@@ -108,6 +113,8 @@ export const PdfView = forwardRef<PdfHandle, Props>(function PdfView(
     zoom: 1,
     generation: 0,
     observer: null as IntersectionObserver | null,
+    zooming: false,
+    renders: new Map<HTMLDivElement, pdfjs.RenderTask>(),
     stroke: null as { page: number; el: HTMLDivElement; points: number[] } | null,
     threads,
     activeThread,
@@ -169,15 +176,20 @@ export const PdfView = forwardRef<PdfHandle, Props>(function PdfView(
     const key = el.dataset.key!;
     if (!doc || el.dataset.rendered === key || el.dataset.rendering === key) return;
     el.dataset.rendering = key;
+    let task: pdfjs.RenderTask | undefined;
     try {
       const page = await doc.getPage(Number(el.dataset.page));
+      if (el.dataset.key !== key) return;
       const scale = Number(el.dataset.scale);
       const dpr = window.devicePixelRatio || 1;
       const viewport = page.getViewport({ scale: scale * dpr });
       const canvas = document.createElement('canvas');
       canvas.width = Math.floor(viewport.width);
       canvas.height = Math.floor(viewport.height);
-      await page.render({ canvasContext: canvas.getContext('2d')!, viewport }).promise;
+      task = page.render({ canvasContext: canvas.getContext('2d')!, viewport });
+      st.renders.set(el, task);
+      await task.promise;
+      if (el.dataset.key !== key) return;
 
       const textLayer = document.createElement('div');
       textLayer.className = 'textLayer';
@@ -195,11 +207,12 @@ export const PdfView = forwardRef<PdfHandle, Props>(function PdfView(
     } catch {
       // The document was replaced mid-render; the new one will render this page.
     } finally {
+      if (task && st.renders.get(el) === task) st.renders.delete(el);
       if (el.dataset.rendering === key) delete el.dataset.rendering;
     }
   };
 
-  const layout = async () => {
+  const layout = async (point?: { x: number; y: number }) => {
     const st = s.current;
     const doc = st.doc;
     const host = pagesRef.current;
@@ -207,12 +220,30 @@ export const PdfView = forwardRef<PdfHandle, Props>(function PdfView(
     if (!doc || !host || !scroller) return;
     const generation = ++st.generation;
     const available = Math.max(200, scroller.clientWidth - 32);
+    const zoom = st.zoom;
+    const viewport = scroller.getBoundingClientRect();
+    const at = point ?? { x: viewport.left + scroller.clientWidth / 2, y: viewport.top + scroller.clientHeight / 2 };
+    // Remember a point on the nearest page, including the fixed gaps between pages.
+    const existing = Array.from(host.children) as HTMLDivElement[];
+    const anchor = existing.reduce<HTMLDivElement | null>((nearest, el) => {
+      const distance = (page: HTMLDivElement) => {
+        const r = page.getBoundingClientRect();
+        return Math.max(r.top - at.y, at.y - r.bottom, 0);
+      };
+      return !nearest || distance(el) < distance(nearest) ? el : nearest;
+    }, null);
+    const rect = anchor?.getBoundingClientRect();
+    const offset = rect && { x: (at.x - rect.left) / rect.width, y: (at.y - rect.top) / rect.height };
+
+    // Fetch first, then resize every page together so intermediate layouts cannot move the view.
+    const bases = await Promise.all(Array.from({ length: doc.numPages }, async (_, i) =>
+      (await doc.getPage(i + 1)).getViewport({ scale: 1 }),
+    ));
+    if (generation !== st.generation) return;
 
     for (let i = 1; i <= doc.numPages; i++) {
-      const page = await doc.getPage(i);
-      if (generation !== st.generation) return;
-      const base = page.getViewport({ scale: 1 });
-      const scale = (available / base.width) * st.zoom;
+      const base = bases[i - 1];
+      const scale = (available / base.width) * zoom;
       let el = host.children[i - 1] as HTMLDivElement | undefined;
       if (!el) {
         el = document.createElement('div');
@@ -227,16 +258,78 @@ export const PdfView = forwardRef<PdfHandle, Props>(function PdfView(
       el.dataset.scale = String(scale);
       el.dataset.w = String(base.width);
       el.dataset.h = String(base.height);
-      el.dataset.key = `${st.version}:${scale.toFixed(4)}`;
-      if (el.dataset.visible) void renderPage(el);
+      const key = `${st.version}:${scale.toFixed(4)}`;
+      if (el.dataset.key !== key) st.renders.get(el)?.cancel();
+      el.dataset.key = key;
+      if (el.dataset.visible && !st.zooming) void renderPage(el);
     }
     while (host.children.length > doc.numPages) {
       const last = host.lastElementChild!;
       st.observer?.unobserve(last);
       last.remove();
     }
+    if (anchor?.isConnected && offset) {
+      const next = anchor.getBoundingClientRect();
+      scroller.scrollLeft += next.left + offset.x * next.width - at.x;
+      scroller.scrollTop += next.top + offset.y * next.height - at.y;
+    }
     drawOverlays();
   };
+
+  const changeZoom = (value: number, point?: { x: number; y: number }) => {
+    const next = Math.max(0.5, Math.min(3, value));
+    if (next === s.current.zoom) return;
+    s.current.zoom = next;
+    // Stretch the existing canvas while zooming; render sharp text once the gesture settles.
+    s.current.zooming = true;
+    if (zoomTimer.current) clearTimeout(zoomTimer.current);
+    zoomTimer.current = setTimeout(() => {
+      s.current.zooming = false;
+      for (const el of Array.from(pagesRef.current?.children ?? []) as HTMLDivElement[]) {
+        if (el.dataset.visible) void renderPage(el);
+      }
+    }, 100);
+    setZoom(next);
+    setMenu(null);
+    void layout(point);
+  };
+
+  useEffect(() => {
+    const scroller = scrollRef.current!;
+    // Trackpad pinches are delivered as Ctrl+wheel by Chromium and Firefox.
+    const wheel = (event: WheelEvent) => {
+      if (!(event.ctrlKey || event.metaKey)) return;
+      event.preventDefault();
+      const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? scroller.clientHeight : 1;
+      changeZoom(s.current.zoom * Math.exp(-event.deltaY * unit * 0.005), { x: event.clientX, y: event.clientY });
+    };
+    let distance = 0;
+    const pinch = (event: TouchEvent) => {
+      if (event.touches.length !== 2) {
+        distance = 0;
+        return;
+      }
+      event.preventDefault();
+      const [a, b] = Array.from(event.touches);
+      const next = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+      if (distance && next) {
+        changeZoom(s.current.zoom * next / distance, { x: (a.clientX + b.clientX) / 2, y: (a.clientY + b.clientY) / 2 });
+      }
+      distance = next;
+    };
+    scroller.addEventListener('wheel', wheel, { passive: false });
+    scroller.addEventListener('touchstart', pinch, { passive: false });
+    scroller.addEventListener('touchmove', pinch, { passive: false });
+    scroller.addEventListener('touchend', pinch);
+    scroller.addEventListener('touchcancel', pinch);
+    return () => {
+      scroller.removeEventListener('wheel', wheel);
+      scroller.removeEventListener('touchstart', pinch);
+      scroller.removeEventListener('touchmove', pinch);
+      scroller.removeEventListener('touchend', pinch);
+      scroller.removeEventListener('touchcancel', pinch);
+    };
+  }, []);
 
   // Render pages only when they are near the viewport.
   useEffect(() => {
@@ -247,7 +340,7 @@ export const PdfView = forwardRef<PdfHandle, Props>(function PdfView(
           const el = entry.target as HTMLDivElement;
           if (entry.isIntersecting) {
             el.dataset.visible = '1';
-            void renderPage(el);
+            if (!st.zooming) void renderPage(el);
           } else {
             delete el.dataset.visible;
           }
@@ -258,6 +351,11 @@ export const PdfView = forwardRef<PdfHandle, Props>(function PdfView(
     let timer: ReturnType<typeof setTimeout>;
     const resize = new ResizeObserver(() => {
       clearTimeout(timer);
+      if (zoomTimer.current) clearTimeout(zoomTimer.current);
+      // The resize layout now owns the redraw. Cancelling the zoom timer must
+      // also end gesture mode so that layout and visibility changes can render.
+      st.zooming = false;
+      for (const task of st.renders.values()) task.cancel();
       timer = setTimeout(() => void layout(), 150);
     });
     resize.observe(scrollRef.current!);
@@ -297,12 +395,6 @@ export const PdfView = forwardRef<PdfHandle, Props>(function PdfView(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [version]);
 
-  useEffect(() => {
-    s.current.zoom = zoom;
-    void layout();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [zoom]);
-
   useImperativeHandle(ref, () => ({
     highlight(box) {
       const el = pagesRef.current?.children[box.page - 1] as HTMLDivElement | undefined;
@@ -336,20 +428,23 @@ export const PdfView = forwardRef<PdfHandle, Props>(function PdfView(
   };
 
   const onClick = (e: React.MouseEvent) => {
+    if (dragged.current) return;
+    if (!drawing && (e.ctrlKey || e.metaKey)) {
+      const el = pageOf(e.target);
+      if (!el) return;
+      const at = toPoints(el, e.clientX, e.clientY);
+      onReverse(at.page, at.x, at.y);
+      return;
+    }
     const pin = (e.target as Element).closest?.('.pin') as SVGElement | null;
     if (pin) {
       onThreadClick(Number(pin.dataset.id));
       return;
     }
-    if (drawing || !(e.ctrlKey || e.metaKey)) return;
-    const el = pageOf(e.target);
-    if (!el) return;
-    const at = toPoints(el, e.clientX, e.clientY);
-    onReverse(at.page, at.x, at.y);
   };
 
   const onMouseUp = () => {
-    if (drawing) return;
+    if (drawing || tool === 'hand') return;
     // Wait a tick so the browser has finalised the selection.
     setTimeout(() => {
       const selection = window.getSelection();
@@ -411,6 +506,15 @@ export const PdfView = forwardRef<PdfHandle, Props>(function PdfView(
 
   // Freehand drawing: strokes on one page are collected into a single draft.
   const onPointerDown = (e: React.PointerEvent) => {
+    dragged.current = false;
+    if (!drawing && tool === 'hand' && e.button === 0 && e.pointerType !== 'touch' && !(e.ctrlKey || e.metaKey)) {
+      const scroller = scrollRef.current!;
+      e.preventDefault();
+      e.currentTarget.setPointerCapture(e.pointerId);
+      pan.current = { id: e.pointerId, x: e.clientX, y: e.clientY, left: scroller.scrollLeft, top: scroller.scrollTop };
+      setPanning(true);
+      return;
+    }
     if (!drawing || e.button !== 0) return;
     const el = pageOf(e.target);
     if (!el) return;
@@ -424,6 +528,17 @@ export const PdfView = forwardRef<PdfHandle, Props>(function PdfView(
   };
 
   const onPointerMove = (e: React.PointerEvent) => {
+    const start = pan.current;
+    if (start && start.id === e.pointerId) {
+      const dx = e.clientX - start.x;
+      const dy = e.clientY - start.y;
+      if (Math.hypot(dx, dy) > 3) dragged.current = true;
+      if (dragged.current) {
+        scrollRef.current!.scrollLeft = start.left - dx;
+        scrollRef.current!.scrollTop = start.top - dy;
+      }
+      return;
+    }
     const stroke = s.current.stroke;
     if (!stroke) return;
     const at = toPoints(stroke.el, e.clientX, e.clientY);
@@ -435,6 +550,8 @@ export const PdfView = forwardRef<PdfHandle, Props>(function PdfView(
   };
 
   const onPointerUp = () => {
+    pan.current = null;
+    setPanning(false);
     const stroke = s.current.stroke;
     if (!stroke) return;
     s.current.stroke = null;
@@ -522,6 +639,13 @@ export const PdfView = forwardRef<PdfHandle, Props>(function PdfView(
     setMenu(null);
   };
 
+  const chooseTool = (next: 'text' | 'hand') => {
+    setTool(next);
+    setDrawing(false);
+    if (draft?.kind === 'drawing') cancelDraft();
+    clearSelection();
+  };
+
   return (
     <div className="pane pdf-pane">
       <div className="pane-bar">
@@ -529,6 +653,28 @@ export const PdfView = forwardRef<PdfHandle, Props>(function PdfView(
         {pageCount > 0 && <span className="muted">{pageCount} {pageCount === 1 ? 'page' : 'pages'}</span>}
         <span className="spacer" />
         <span className="muted hint">{drawing ? 'Draw on the page, then add a note' : 'Ctrl+click to jump to source'}</span>
+        <button
+          className={`btn small icon ${!drawing && tool === 'text' ? 'active' : ''}`}
+          onClick={() => chooseTool('text')}
+          aria-pressed={!drawing && tool === 'text'}
+          aria-label="Select text"
+          title="Select text (Ctrl+click to jump to source)"
+        >
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden="true">
+            <path d="M4 2h2l2 2 2-2h2M8 4v8M4 14h2l2-2 2 2h2" strokeLinejoin="round" />
+          </svg>
+        </button>
+        <button
+          className={`btn small icon ${!drawing && tool === 'hand' ? 'active' : ''}`}
+          onClick={() => chooseTool('hand')}
+          aria-pressed={!drawing && tool === 'hand'}
+          aria-label="Pan PDF"
+          title="Hand: drag to move the PDF (Ctrl+click to jump to source)"
+        >
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2" aria-hidden="true">
+            <path d="M5 8V4a1 1 0 0 1 2 0v3-5a1 1 0 0 1 2 0v5-4a1 1 0 0 1 2 0v4-2a1 1 0 0 1 2 0v5c0 3-2 5-5 5H7c-1 0-2-1-3-3L2 9a1 1 0 0 1 1.5-1.3L5 9Z" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </button>
         <button
           className={`btn small ${night ? 'active' : ''}`}
           onClick={() => setNight((on) => !on)}
@@ -546,13 +692,13 @@ export const PdfView = forwardRef<PdfHandle, Props>(function PdfView(
         >
           Draw
         </button>
-        <button className="btn small icon" onClick={() => setZoom((z) => Math.max(0.5, +(z - 0.1).toFixed(2)))} title="Zoom out">
+        <button className="btn small icon" onClick={() => changeZoom(+(s.current.zoom - 0.1).toFixed(2))} title="Zoom out">
           −
         </button>
-        <button className="btn small" onClick={() => setZoom(1)} title="Fit width">
+        <button className="btn small" onClick={() => changeZoom(1)} title="Fit width">
           {Math.round(zoom * 100)}%
         </button>
-        <button className="btn small icon" onClick={() => setZoom((z) => Math.min(3, +(z + 0.1).toFixed(2)))} title="Zoom in">
+        <button className="btn small icon" onClick={() => changeZoom(+(s.current.zoom + 0.1).toFixed(2))} title="Zoom in">
           +
         </button>
         {onDetach && (
@@ -569,7 +715,7 @@ export const PdfView = forwardRef<PdfHandle, Props>(function PdfView(
         )}
       </div>
       <div
-        className={`pdf-scroll ${drawing ? 'drawing' : ''} ${night ? 'night' : ''}`}
+        className={`pdf-scroll ${drawing ? 'drawing' : tool === 'hand' ? 'hand' : ''} ${panning ? 'panning' : ''} ${night ? 'night' : ''}`}
         ref={scrollRef}
         onClick={onClick}
         onMouseUp={onMouseUp}
@@ -577,6 +723,7 @@ export const PdfView = forwardRef<PdfHandle, Props>(function PdfView(
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
+        onLostPointerCapture={onPointerUp}
         onScroll={() => menu && setMenu(null)}
       >
         {!version && <div className="empty">No PDF yet. It appears here after the first successful build.</div>}

@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: [main, prod]
+  pull_request:
+    branches: [main, prod]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Build and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run test:browser
+      - run: npm run release
+      - name: Check packaged installation
+        run: |
+          npm install -g ./release/paper-assistant-*.tgz
+          paper-assistant --version
+          paper-assistant --help
+      - uses: actions/upload-artifact@v4
+        with:
+          name: paper-assistant
+          path: release/*.tgz
+          if-no-files-found: error

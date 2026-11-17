@@ -6,8 +6,8 @@ import { fileURLToPath } from 'node:url';
 import chokidar from 'chokidar';
 import express from 'express';
 import { WebSocketServer, type WebSocket } from 'ws';
-import { spawn } from 'node:child_process';
-import { Agents } from './agent.ts';
+import { spawn, spawnSync } from 'node:child_process';
+import { Agents, parseAgentOptions } from './agent.ts';
 import { Annotations, type NewThread } from './annotations.ts';
 import { Chats } from './chats.ts';
 import { cliSessions, cliTranscript, sessionTitle } from './cliHistory.ts';
@@ -15,6 +15,8 @@ import { Compiler } from './compiler.ts';
 import { Settings, claudeAccounts } from './settings.ts';
 import { Project, isAssetFile, isSkippedDir, isTextFile } from './project.ts';
 import { forward, reverse } from './synctex.ts';
+import { openBrowser, register, unregister } from './instances.ts';
+import { projectSymbols, texInstalled } from './symbols.ts';
 
 // ---------- command line ----------
 
@@ -24,14 +26,7 @@ const option = (name: string) => {
   const i = argv.indexOf(name);
   return i >= 0 ? argv[i + 1] : undefined;
 };
-if (flag('--help') || flag('-h')) {
-  console.log(`Usage: paper-assistant [folder] [--port <number>] [--no-open]
-
-  folder      The LaTeX project to open (default: the current folder)
-  --port      Port to listen on (default: 4317, or the next free one)
-  --no-open   Do not open the browser`);
-  process.exit(0);
-}
+// --help, --version and the stop and list commands are handled in cli.ts, which starts this file.
 const positional = argv.filter((a, i) => !a.startsWith('-') && argv[i - 1] !== '--port');
 const PORT = Number(option('--port') ?? process.env.PORT ?? 4317);
 const HOST = '127.0.0.1';
@@ -63,7 +58,7 @@ const compiler = new Compiler(
     // The text may have moved in the new PDF; annotations follow it.
     void broadcastAnnotations();
     // Handle file events that arrived mid-build, now that we know which files the build itself wrote.
-    for (const [event, abs] of deferred.splice(0)) onFileEvent(event, abs);
+    for (const [event, abs] of deferred.splice(0)) processFileEvent(event, abs);
     for (const fn of afterBuild.splice(0)) fn();
   },
 );
@@ -127,6 +122,10 @@ function onFileEvent(event: string, abs: string) {
     deferred.push([event, abs]);
     return;
   }
+  processFileEvent(event, abs);
+}
+
+function processFileEvent(event: string, abs: string) {
   if (compiler.generated.has(abs) || abs === compiler.pdfPath() || /-converted-to\.pdf$/.test(abs)) return;
   const rel = project.rel(abs);
   if (isTextFile(abs)) {
@@ -209,6 +208,23 @@ app.get('/api/state', (_req, res) => {
   });
 });
 
+// Closes the app: the server may have been started in the background, with no terminal to press Ctrl+C in.
+app.post('/api/quit', (_req, res) => {
+  res.json({ ok: true });
+  broadcast({ type: 'quit' });
+  setTimeout(shutdown, 150);
+});
+
+// What the editor's completion offers: the paper's own labels, citation keys, macros and files...
+app.get('/api/symbols', (_req, res) => {
+  res.json(projectSymbols(project));
+});
+
+// ...and the packages and classes of the TeX installation, which do not change while the app runs.
+app.get('/api/tex-installed', async (_req, res) => {
+  res.json(await texInstalled());
+});
+
 app.get('/api/file', (req, res) => {
   res.json(project.read(relPath(req)));
 });
@@ -216,7 +232,12 @@ app.get('/api/file', (req, res) => {
 app.put('/api/file', (req, res) => {
   const rel = relPath(req);
   if (typeof req.body?.content !== 'string') throw new Error('Missing content');
-  const result = project.writeFromClient(rel, req.body.content);
+  if (typeof req.body?.expected !== 'string') throw new Error('Missing expected content');
+  const result = project.writeFromClient(rel, req.body.content, req.body.expected);
+  if (!result.saved) {
+    res.status(409).json(result);
+    return;
+  }
   broadcastFiles();
   scheduleCompile();
   res.json(result);
@@ -321,6 +342,7 @@ app.get('/api/annotations/:id/image', (req, res) => {
 app.post('/api/agent/send', (req, res) => {
   const name = req.body?.agent ?? 'claude';
   if (typeof name !== 'string' || !agents.has(name)) throw new Error('Unknown agent');
+  const options = parseAgentOptions(name, req.body?.options);
   if (agents.busy) {
     res.status(409).json({ error: 'The agent is still working.' });
     return;
@@ -334,7 +356,7 @@ app.post('/api/agent/send', (req, res) => {
       if (reply) annotations.applyReply(threads, reply, agents.label(name));
       void broadcastAnnotations();
       collectAgentNotes(agents.label(name));
-    });
+    }, options);
   } else {
     const prompt = req.body?.prompt;
     if (typeof prompt !== 'string' || !prompt.trim()) throw new Error('Missing prompt');
@@ -342,7 +364,7 @@ app.post('/api/agent/send', (req, res) => {
     const display = typeof req.body?.display === 'string' && req.body.display.trim() ? req.body.display : prompt;
     const attached = Array.isArray(req.body?.attached) ? req.body.attached.filter((a: unknown) => typeof a === 'string') : [];
     chats.addUser(display, attached);
-    agents.send(name, prompt, () => collectAgentNotes(agents.label(name)));
+    agents.send(name, prompt, () => collectAgentNotes(agents.label(name)), options);
   }
   res.json({ ok: true });
 });
@@ -475,18 +497,6 @@ server.on('upgrade', (req, socket, head) => {
   });
 });
 
-const openBrowser = (url: string) => {
-  const [cmd, args] =
-    process.platform === 'darwin' ? ['open', [url]] : process.platform === 'win32' ? ['cmd', ['/c', 'start', '', url]] : ['xdg-open', [url]];
-  try {
-    spawn(cmd as string, args as string[], { stdio: 'ignore', detached: true })
-      .on('error', () => {})
-      .unref();
-  } catch {
-    // No browser launcher; the URL is printed instead.
-  }
-};
-
 // If the port is taken (another paper is open), use the next free one.
 let port = PORT;
 server.on('error', (err: NodeJS.ErrnoException) => {
@@ -508,13 +518,20 @@ server.on('listening', () => {
   } else {
     console.log(`API on ${url} (run the Vite dev server for the UI)`);
   }
+  register(port, project.root);
+  // Say what is missing now, rather than at the first build or the first message to the agent.
+  const onPath = (cmd: string) => spawnSync('which', [cmd], { stdio: 'ignore' }).status === 0;
+  if (!onPath('pdflatex')) console.warn('Warning: pdflatex was not found. Install a TeX distribution (TeX Live or MacTeX) to build the PDF.');
+  else if (!onPath('synctex')) console.warn('Warning: synctex was not found. Jumping between source and PDF, and comments on the PDF, need it.');
+  if (!agents.list().some((a) => a.available)) console.warn('Warning: neither claude nor codex was found. Install Claude Code or Codex and log in to use the agent.');
   void compiler.compile();
 });
 server.listen(port, HOST);
 
-const shutdown = () => {
+function shutdown() {
   agents.stop();
+  unregister();
   process.exit(0);
-};
+}
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
