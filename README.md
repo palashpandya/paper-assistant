@@ -1,87 +1,65 @@
 # Paper Assistant
 
-A local LaTeX editor where you and an AI agent work on the same paper: source, live PDF and agent chat side by side.
+A local LaTeX editor with live PDF preview and an AI agent working on the same files. Uses your own Claude Code or Codex CLI login; no separate API key is needed.
 
-The agent is the [Claude Code](https://claude.com/claude-code) or Codex CLI running under your own login, so it uses the subscription you already have and needs no API key.
+## Features
+
+- **Write and preview:** autosave, automatic LaTeX builds, command/citation/reference completion, and source ↔ PDF navigation.
+- **Work with an agent:** chat with Claude Code or Codex, choose model and effort, and review file edits with Accept/Reject diffs. Conversations persist across restarts.
+- **Review on the PDF:** select passages, add comment threads or drawings, and send them to the agent. Agents can also leave comments.
+- **Arrange your workspace:** resizable layouts, themes, PDF night mode, and a detachable PDF tab for a second screen.
+- **Keep edits safe:** concurrent editor and disk changes are merged; conflicting edits preserve both versions for manual resolution.
 
 ## Requirements
 
-- Node.js 22 or newer
-- A TeX distribution with `pdflatex` and `synctex` (`latexmk` is used when installed)
-- At least one agent CLI, installed and logged in: `claude` (Claude Code) or `codex`
+- **Node.js 22.18+** (Node.js 24 recommended), with npm.
+- A TeX distribution providing `pdflatex` and `synctex`, plus the packages your paper uses. `latexmk` is recommended; bibliography builds may also need `bibtex` or `biber`.
+- For AI features: **Claude Code or Codex CLI**, installed, available on `PATH`, and logged in. Check that your chosen CLI works in a terminal first.
 
 ## Install and run
 
-Install from the release file, `paper-assistant-<version>.tgz`. It is already built, so this takes a few seconds:
+Download **`paper-assistant-0.1.0.tgz`** from the [latest release](https://github.com/palashpandya/paper-assistant/releases/latest). Choose this prebuilt asset rather than GitHub's source-code archives. Then run:
 
 ```sh
-npm install -g ./paper-assistant-0.1.0.tgz     # a downloaded file: keep the ./ or give the full path
-```
-
-That puts the `paper-assistant` command on your path. Then, in any paper's folder:
-
-```sh
+npm install -g ./paper-assistant-0.1.0.tgz
 cd /path/to/your/paper
 paper-assistant
 ```
 
-This opens the paper in your browser and gives you the terminal back: the app keeps running in the background, also after the terminal is closed. To close it, click Quit in the app's top bar, or:
+The app opens in your browser and runs in the background. Open a folder containing your LaTeX project; `main.tex` is preferred when several documents are found. Select your agent in the agent pane, edit some text, and check that the PDF rebuilds. Ctrl+click the PDF to jump to source; Alt+Enter in the editor shows the source line in the PDF.
 
 ```sh
-paper-assistant stop          # in the paper's folder; or: paper-assistant stop /path/to/paper, or --all
-paper-assistant list          # the papers that are open, with their addresses
+paper-assistant list                    # open papers and their addresses
+paper-assistant stop                    # close the paper in the current folder
+paper-assistant stop --all              # close every running paper
+paper-assistant /path/to/paper --foreground  # stay in the terminal; Ctrl+C to stop
 ```
 
-Running `paper-assistant` again on a paper that is already open just shows it. Options: `paper-assistant [folder] [--port <number>] [--no-open] [--foreground] [--version]`. `--foreground` keeps the app attached to the terminal, where Ctrl+C closes it. If the port is taken, for example because another paper is open, the next free one is used. On starting, it says so if `pdflatex`, `synctex` or an agent CLI is missing. What a background app would have printed afterwards goes to `~/.paper-assistant/logs/`.
+The **Quit** button also stops the app. Use `--port 4317` to choose a port, `--no-open` to skip opening a browser, or `--help` for usage. If a port is occupied, the app tries the next one.
 
-To update, install the newer file the same way. To remove it: `npm uninstall -g paper-assistant`.
+To update, install the newer release asset the same way. To uninstall: `npm uninstall -g paper-assistant`.
 
-If `npm install -g` fails with a permissions error, your Node installation keeps global packages in a system folder; use a Node version manager such as `nvm`, or set a prefix you own with `npm config set prefix ~/.local`.
+## Testing and troubleshooting
 
-### From source
+- Start with a copy of a paper: the editor and agent write directly to its files, and LaTeX outputs are written beside the main document.
+- Test editing → PDF rebuild, source/PDF navigation, an agent edit → Accept/Reject, and a PDF comment → Send to agent.
+- If compilation fails, click the build status for errors and check that TeX tools are on `PATH`. If chat fails, verify the CLI login in a terminal and try the default model/effort settings.
+- Background logs are in `~/.paper-assistant/logs/`. If global npm installation gives a permissions error, use a Node version manager or a writable npm prefix on your `PATH`.
+- Report problems in [Issues](https://github.com/palashpandya/paper-assistant/issues), including your OS, Node version, app version (`paper-assistant --version`), agent CLI version, and steps to reproduce. Remove private paper text or credentials from logs before sharing.
 
-`npm install -g github:palashpandya/paper-assistant` installs straight from the repository, for those with access to it, building as it goes. From a checkout without installing: `npm install`, then `npm start -- /path/to/your/paper` (try `examples/sample`).
+The server listens on `127.0.0.1`. Comments, drawings and chat are stored in `.paper-assistant/` inside the paper folder; AI requests run through your chosen CLI. This is a local, single-user app. File creation/renaming in the UI and simultaneous multi-user editing are not supported yet.
 
-To make a release file: set the version in `package.json`, then `npm run release`, which builds and writes `release/paper-assistant-<version>.tgz`.
+See the [usage guide](docs/usage.md) for detailed controls and behavior.
 
-## What it does
+## Development and releases
 
-- **Edit and build:** changes save automatically and the PDF rebuilds and refreshes in place.
-- **Completion while you type:** a backslash offers LaTeX commands and symbols (with the symbol shown), plus the macros your paper defines; commands with arguments are filled in with places to Tab between. `\ref{` and its relatives offer the paper's labels, `\cite{` its citation keys (searchable by author, year and title), `\begin{` environments with the matching `\end`, `\usepackage{` the packages in your TeX installation, and `\input{` and `\includegraphics{` the paper's files. Enter accepts a suggestion, Escape dismisses it, Ctrl+Space asks for one. Typing `$` adds the closing `$` as brackets do (a second `$` makes `$$ $$`), and wraps the selection when there is one.
-- **Jump between source and PDF:** Ctrl+click in the PDF goes to the source line; "Show in PDF" (Alt+Enter) highlights the current line in the PDF.
-- **Agent chat:** the agent edits the project files directly. Its edits appear in the editor as a diff, with Accept and Reject per change or for the whole file. Choose Claude Code or Codex in the agent pane.
-- **Concurrent edits:** unsaved typing is merged with changes from the agent or disk, including after reconnecting. If both change the same text, both versions are saved between `<<<<<<< Your edits`, `=======` and `>>>>>>> Disk changes` markers. Edit that block to keep the intended text and remove the markers before building the paper. Failed saves leave your typing in the editor and offer Retry save.
-- **Point at a passage:** select text in the PDF and click "Ask agent", or select text in the editor; the selection and its source location are attached to your next message.
-- **Conversations are kept:** the chat with the agent is saved with the paper, so reloading the page or restarting the app carries on where you were. The clock button in the agent pane lists earlier conversations; pick one to continue it, with the agent remembering what was said. The list also includes sessions you held with Claude Code or Codex outside the app, for example in a terminal, in the paper's folder or in the folders around it up to the top of its git repository; more load as you scroll, and the switch at the top narrows the list to one agent's conversations. The plus button starts a new one. Removing an entry only takes it off the list; the CLI's own record of the session is left alone.
-- **Several Claude Code logins:** if you keep more than one Claude Code login on the machine (the default `~/.claude` plus folders such as `~/.claude-work` used through `CLAUDE_CONFIG_DIR`), a chooser appears in the top bar. The agent runs under the login you pick and History shows that login's conversations. The choice is remembered per paper; until you make one, the app uses the login it was started under.
-- **Comments on the PDF:** select text in the PDF and choose Comment. Each comment is a thread you and the agent can reply in, with Resolve and Reopen. "Send to agent" hands over one comment, "Send all" every open one; the agent's answer is filed in the thread and it can mark the comment resolved.
-- **Drawing on the PDF:** switch on Draw, mark up the page, and add a note. The agent receives a picture of the marked-up region and the source lines underneath it.
-- **Comments from the agent:** ask the agent to review the paper or point things out, and it leaves its own comments on the PDF: highlighted lines, or a box or circle drawn around them, in blue. They are threads like yours, so you can reply, send them back to the agent to act on, resolve or delete them. The agent points at source lines, so its marks cover whole typeset lines rather than single words.
-- **Comments follow the text:** when the PDF changes, comments and drawings move with the source line they point at. If that text is gone they are flagged as moved.
-- **Typeset math in chat:** agent replies render Markdown and math. LaTeX you type in a message (`\rho_{ij}`, `$...$`, `$$...$$`) is typeset in a live preview above the input; the agent still receives the source you typed.
-- **Layouts:** five pane arrangements in the top bar, all panes resizable, and a toggle for the file list. The choice is remembered per browser.
-- **PDF in its own tab:** the arrow button at the right of the PDF bar moves the PDF to a separate browser tab, which you can drag to another window or screen. Jumping between source and PDF, Ask agent, comments and drawings work across the two; "Dock PDF" in the top bar, or closing the tab, brings it back.
-- **Themes:** Paper (light), Solarized Light, Solarized Dark, Dracula, Nord and Gruvbox Dark, chosen in the top bar and remembered per browser. The PDF pages stay as LaTeX rendered them unless you switch on Night in the PDF bar, which inverts their colours on screen.
-- **Build errors:** click the build status for errors and warnings, jump to the offending line, or hand them to the agent with "Fix with agent".
+```sh
+git clone https://github.com/palashpandya/paper-assistant.git
+cd paper-assistant
+npm ci
+npm start -- examples/sample
+```
 
-## How it works
+`npm run dev` enables hot reload; set `PAPER=/path/to/paper` for another project. Run `npm run typecheck`, `npm test`, and `npm run test:browser` before releasing. Browser tests require Chrome (`CHROME_BIN` overrides `/usr/bin/google-chrome`); tests use temporary projects and fake agents/builders.
 
-- `server/` is a small Node server. It watches the project folder, runs LaTeX, answers SyncTeX lookups, and starts the agent CLI in the project folder for each chat turn.
-  - Claude Code runs with `claude -p` and may only read, search and edit files; it cannot run shell commands.
-  - Codex runs with `codex exec` in its own `workspace-write` sandbox, so it can run commands but only write inside the project folder.
-- `src/` is the React front end: CodeMirror for the editor and diff review, PDF.js for the preview, KaTeX for math.
-- Comments and drawings are stored in the paper's folder under `.paper-assistant/` (`annotations.json` plus one PNG per drawing), so they can be committed with the paper or ignored.
-- The server only listens on `127.0.0.1` and rejects requests from other origins.
-- LaTeX build files are written next to the main `.tex` file, as with a normal local build.
-
-## Development
-
-`npm run dev` starts the server and Vite with hot reload at http://localhost:5173 (set `PAPER=/path/to/paper` to use a different project). `npm run build` produces `dist/` (front end) and `dist-server/` (server), which is what the `paper-assistant` command runs.
-
-Run `npm test` for merge, project filesystem, HTTP and WebSocket regression tests. Run `npm run test:browser` for headless Chrome tests of autosave, concurrent edits, reconnects, save failures and file switching; it builds the app first. Chrome defaults to `/usr/bin/google-chrome`; set `CHROME_BIN` to another Chrome or Chromium executable if needed. Tests need a recent Node 22 with TypeScript stripping (22.18+) or newer, and permission to listen on loopback ports.
-
-Tests create disposable projects and app state under the system temporary directory, use a fake LaTeX builder, and never start an agent CLI or use your real papers or CLI logins. Browser tests launch Chrome with a temporary profile and its sandbox disabled; use them only against the local test fixture.
-
-## Not built yet
-
-Creating or renaming files from the UI, and several people working on one paper at once.
+`prod` is the protected release branch; submit changes through a pull request with passing **Build and test** checks. `main` remains the default branch. To package a release, update the version in `package.json` and `package-lock.json`, then run `npm ci` and `npm run release`. Publish the resulting `release/paper-assistant-<version>.tgz` on a GitHub release tagged at the tested `prod` commit.

@@ -498,9 +498,18 @@ button.issue:not(:disabled):hover {
 
 /* ---------- PDF ---------- */
 
+.pdf-pane > .pane-bar {
+  flex-wrap: wrap;
+  height: auto;
+  min-height: 36px;
+  padding: 6px 10px;
+}
+
 .pdf-scroll {
   flex: 1;
   overflow: auto;
+  overflow-anchor: none;
+  touch-action: pan-x pan-y;
   background: var(--pdf-bg);
 }
 
@@ -512,6 +521,21 @@ button.issue:not(:disabled):hover {
   padding: 16px;
   width: max-content;
   min-width: 100%;
+}
+
+.pdf-scroll.hand {
+  cursor: grab;
+  user-select: none;
+}
+
+.pdf-scroll.hand.panning {
+  cursor: grabbing;
+}
+
+.pdf-scroll.hand .textLayer,
+.pdf-scroll.hand .textLayer span {
+  cursor: inherit;
+  user-select: none;
 }
 
 .pdf-page {
@@ -907,6 +931,34 @@ button.issue:not(:disabled):hover {
 }
 
 /* ---------- agent pane tabs ---------- */
+
+.agent-settings {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel-2);
+}
+
+.agent-settings label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1 1 150px;
+  min-width: 0;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.agent-settings input,
+.agent-settings select {
+  flex: 1;
+  width: 0;
+  min-width: 0;
+  padding: 4px 6px;
+  font-size: 12px;
+}
 
 .chat-pane {
   flex: 1;

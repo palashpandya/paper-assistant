@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Local LaTeX editor with live PDF preview and an AI agent (Claude Code) working on the same files",
+  "description": "Local LaTeX editor with live PDF preview and Claude Code or Codex working on the same files",
   "bin": {
     "paper-assistant": "bin/paper-assistant.js"
   },
@@ -58,9 +58,10 @@
     "bin",
     "dist",
     "dist-server",
-    "README.md"
+    "README.md",
+    "docs/usage.md"
   ],
   "engines": {
-    "node": ">=22"
+    "node": ">=22.18"
   }
 }

@@ -11,6 +11,10 @@ test('HTTP saves reject stale writes and enforce filesystem and origin boundarie
   const app = await startApp();
   try {
     assert.equal((await app.api('/api/state')).body.main, 'main.tex');
+    const beforeChat = (await app.api('/api/chat')).body;
+    assert.equal((await app.api('/api/agent/send', json('POST', { agent: 'claude', prompt: 'Invalid settings', options: { effort: 'invalid' } }))).status, 400);
+    assert.equal((await app.api('/api/agent/send', json('POST', { agent: 'codex', prompt: 'Invalid settings', options: { model: '--bad-flag' } }))).status, 400);
+    assert.deepEqual((await app.api('/api/chat')).body, beforeChat);
     assert.equal((await app.api('/api/file?path=main.tex', json('PUT', { content: 'Missing expectation' }))).status, 400);
     fs.writeFileSync(path.join(app.root, 'main.tex'), 'External update');
     const stale = await app.api('/api/file?path=main.tex', json('PUT', { content: 'Stale', expected: app.original }));

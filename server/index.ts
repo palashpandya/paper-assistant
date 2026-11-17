@@ -7,7 +7,7 @@ import chokidar from 'chokidar';
 import express from 'express';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { spawn, spawnSync } from 'node:child_process';
-import { Agents } from './agent.ts';
+import { Agents, parseAgentOptions } from './agent.ts';
 import { Annotations, type NewThread } from './annotations.ts';
 import { Chats } from './chats.ts';
 import { cliSessions, cliTranscript, sessionTitle } from './cliHistory.ts';
@@ -342,6 +342,7 @@ app.get('/api/annotations/:id/image', (req, res) => {
 app.post('/api/agent/send', (req, res) => {
   const name = req.body?.agent ?? 'claude';
   if (typeof name !== 'string' || !agents.has(name)) throw new Error('Unknown agent');
+  const options = parseAgentOptions(name, req.body?.options);
   if (agents.busy) {
     res.status(409).json({ error: 'The agent is still working.' });
     return;
@@ -355,7 +356,7 @@ app.post('/api/agent/send', (req, res) => {
       if (reply) annotations.applyReply(threads, reply, agents.label(name));
       void broadcastAnnotations();
       collectAgentNotes(agents.label(name));
-    });
+    }, options);
   } else {
     const prompt = req.body?.prompt;
     if (typeof prompt !== 'string' || !prompt.trim()) throw new Error('Missing prompt');
@@ -363,7 +364,7 @@ app.post('/api/agent/send', (req, res) => {
     const display = typeof req.body?.display === 'string' && req.body.display.trim() ? req.body.display : prompt;
     const attached = Array.isArray(req.body?.attached) ? req.body.attached.filter((a: unknown) => typeof a === 'string') : [];
     chats.addUser(display, attached);
-    agents.send(name, prompt, () => collectAgentNotes(agents.label(name)));
+    agents.send(name, prompt, () => collectAgentNotes(agents.label(name)), options);
   }
   res.json({ ok: true });
 });

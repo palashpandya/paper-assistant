@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { api, connect, type AgentInfo, type ChatSummary, type ClaudeAccount, type CompileResult, type FileInfo, type NewThread, type ServerMsg, type Thread } from './api';
+import { api, connect, type AgentInfo, type AgentOptions, type ChatSummary, type ClaudeAccount, type CompileResult, type FileInfo, type NewThread, type ServerMsg, type Thread } from './api';
 import { Comments } from './Comments';
 import { Chat, type ContextChip, type Message } from './Chat';
 import { Editor, type EditorDoc, type EditorSelection } from './Editor';
@@ -36,6 +36,7 @@ export function App() {
   const [tab, setTab] = useState<'chat' | 'comments'>('chat');
   const [agents, setAgents] = useState<AgentInfo[]>([]);
   const [agentChoice, setAgentChoice] = useState(() => load('agent', 'claude'));
+  const [agentSettings, setAgentSettings] = useState<Record<string, AgentOptions>>(() => load('agent.settings', {}));
   const [presetId, setPresetId] = useState(() => load('layout.preset', PRESETS[0].id));
   const [allSizes, setAllSizes] = useState<Record<string, Sizes>>(() => load('layout.sizes', {}));
   const [sidebarOpen, setSidebarOpen] = useState(() => load('sidebar.open', true));
@@ -220,7 +221,13 @@ export function App() {
   const agent =
     agents.find((a) => a.name === agentChoice && a.available) ?? agents.find((a) => a.available) ?? agents[0] ?? null;
   const agentName = agent?.name ?? 'claude';
+  const agentOptions = agentSettings[agentName] ?? {};
+  const efforts = agent?.models.find((m) => m.id === agentOptions.model)?.efforts ?? agent?.efforts ?? [];
+  const updateAgentOptions = (options: AgentOptions) => {
+    setAgentSettings((settings) => ({ ...settings, [agentName]: options }));
+  };
   useEffect(() => save('agent', agentChoice), [agentChoice]);
+  useEffect(() => save('agent.settings', agentSettings), [agentSettings]);
 
   const send = useCallback(
     (text: string, attached: ContextChip[] = []) => {
@@ -233,12 +240,12 @@ export function App() {
       setMessages((ms) => [...ms, { role: 'user', parts: [{ type: 'text', text }], attached: attached.map((c) => c.label) }]);
       setPdfChips([]);
       setBusy(true);
-      api.send(agentName, prompt, text, attached.map((c) => c.label)).catch((e) => {
+      api.send(agentName, prompt, text, attached.map((c) => c.label), agentOptions).catch((e) => {
         setBusy(false);
         flash(e.message);
       });
     },
-    [selection, flash, agentName],
+    [selection, flash, agentName, agentOptions],
   );
 
   // ---------- comments and drawings ----------
@@ -249,12 +256,12 @@ export function App() {
       const text = ids.length === 1 ? `Address comment #${ids[0]}.` : `Address comments ${ids.map((id) => `#${id}`).join(', ')}.`;
       setMessages((ms) => [...ms, { role: 'user', parts: [{ type: 'text', text }] }]);
       setBusy(true);
-      api.sendThreads(agentName, ids).catch((e) => {
+      api.sendThreads(agentName, ids, agentOptions).catch((e) => {
         setBusy(false);
         flash(e.message);
       });
     },
-    [agentName, flash],
+    [agentName, flash, agentOptions],
   );
 
   const createThread = useCallback(
@@ -390,6 +397,29 @@ export function App() {
 
   /** The list is long in a folder with a lot of past sessions, so further pages load as it is scrolled. */
   const historyRef = useRef<HTMLDivElement>(null);
+  const historyButtonRef = useRef<HTMLButtonElement>(null);
+  const historyOpen = history !== null;
+
+  useEffect(() => {
+    if (!historyOpen) return;
+    const dismissOutside = (event: PointerEvent) => {
+      if (event.target instanceof Node &&
+          !historyRef.current?.contains(event.target) &&
+          !historyButtonRef.current?.contains(event.target)) {
+        setHistory(null);
+      }
+    };
+    const dismissOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setHistory(null);
+    };
+    document.addEventListener('pointerdown', dismissOutside, true);
+    document.addEventListener('keydown', dismissOnEscape);
+    return () => {
+      document.removeEventListener('pointerdown', dismissOutside, true);
+      document.removeEventListener('keydown', dismissOnEscape);
+    };
+  }, [historyOpen]);
+
   const moreHistory = () => {
     const el = historyRef.current;
     if (!el || !history || history.next === null || loadingHistory.current) return;
@@ -760,6 +790,7 @@ export function App() {
                 {tab === 'chat' ? (
                   <>
                     <button
+                      ref={historyButtonRef}
                       className={`btn small icon ${history ? 'active' : ''}`}
                       onClick={toggleHistory}
                       aria-expanded={!!history}
@@ -807,6 +838,36 @@ export function App() {
                     )}
                   </>
                 )}
+              </div>
+              <div className="agent-settings">
+                <label>
+                  Model
+                  <input
+                    aria-label="Model"
+                    list="agent-models"
+                    placeholder="Default model"
+                    value={agentOptions.model ?? ''}
+                    onChange={(e) => updateAgentOptions({ model: e.target.value, effort: '' })}
+                    disabled={busy}
+                    title="Choose a model or enter a model ID. Leave empty to use the agent's default."
+                  />
+                  <datalist id="agent-models">
+                    {agent?.models.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
+                  </datalist>
+                </label>
+                <label>
+                  Effort
+                  <select
+                    aria-label="Effort"
+                    value={agentOptions.effort ?? ''}
+                    onChange={(e) => updateAgentOptions({ ...agentOptions, effort: e.target.value })}
+                    disabled={busy}
+                    title="Reasoning effort for the next message or comment request"
+                  >
+                    <option value="">Default effort</option>
+                    {efforts.map((effort) => <option key={effort} value={effort}>{effort === 'xhigh' ? 'Extra high' : effort[0].toUpperCase() + effort.slice(1)}</option>)}
+                  </select>
+                </label>
               </div>
               {history && tab === 'chat' && (
                 <div className="history" ref={historyRef} onScroll={moreHistory}>
