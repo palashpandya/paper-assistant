@@ -58,6 +58,11 @@ export async function browserApp() {
     on('Runtime.exceptionThrown', (e) => errors.push(e.exceptionDetails.text));
     await send('Runtime.enable');
     await send('Page.enable');
+    // Do not depend on Chrome's platform-specific headless window size. Native
+    // pointer tests need the three-pane workspace to fit inside the viewport.
+    await send('Emulation.setDeviceMetricsOverride', {
+      width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false,
+    });
     await send('Page.addScriptToEvaluateOnNewDocument', { source: `
       window.__sockets = [];
       const NativeSocket = window.WebSocket;

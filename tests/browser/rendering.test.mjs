@@ -153,6 +153,11 @@ test('PDF hand tool pans in both directions and both tools retain Ctrl+click to 
       const r = s.getBoundingClientRect();
       return { x: r.left + s.clientWidth / 2, y: r.top + s.clientHeight / 2, left: s.scrollLeft, top: s.scrollTop };
     })()`);
+    // Let Chrome commit the programmatic scroll before native hit testing.
+    await app.evaluate(`new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))`);
+    assert.equal(await app.evaluate(`!!document.elementFromPoint(${start.x}, ${start.y})?.closest('.pdf-scroll')`), true,
+      'The drag must start on the visible PDF scroller');
+    await app.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: start.x, y: start.y });
     await app.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: start.x, y: start.y, button: 'left', clickCount: 1 });
     await app.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: start.x - 35, y: start.y - 65, buttons: 1 });
     await until(() => app.evaluate(`getComputedStyle(document.querySelector('.pdf-scroll')).cursor === 'grabbing'`), 'Hand drag did not start');
