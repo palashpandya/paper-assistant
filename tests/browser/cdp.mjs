@@ -21,7 +21,7 @@ export async function browserApp() {
       if (spawnError) throw spawnError;
       if (chrome.exitCode !== null) throw new Error('Chrome exited before starting');
       return fs.existsSync(portFile);
-    }, 'Chrome did not start; set CHROME_BIN to a Chrome/Chromium executable');
+    }, 'Chrome did not start; set CHROME_BIN to a Chrome/Chromium executable', 30000);
     const port = fs.readFileSync(portFile, 'utf8').split('\n')[0];
     const target = await (await fetch(`http://127.0.0.1:${port}/json/new?about:blank`, { method: 'PUT' })).json();
     ws = new WebSocket(target.webSocketDebuggerUrl);
@@ -58,6 +58,11 @@ export async function browserApp() {
     on('Runtime.exceptionThrown', (e) => errors.push(e.exceptionDetails.text));
     await send('Runtime.enable');
     await send('Page.enable');
+    // Do not depend on Chrome's platform-specific headless window size. Native
+    // pointer tests need the three-pane workspace to fit inside the viewport.
+    await send('Emulation.setDeviceMetricsOverride', {
+      width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false,
+    });
     await send('Page.addScriptToEvaluateOnNewDocument', { source: `
       window.__sockets = [];
       const NativeSocket = window.WebSocket;
