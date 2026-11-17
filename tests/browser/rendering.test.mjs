@@ -123,6 +123,17 @@ test('PDF zoom preserves the reading position and handles wheel and touch pinche
     })()`);
     assert.deepEqual(gesture, { grew: true, reusedCanvas: true });
     await until(() => app.evaluate(`pdfPage.dataset.rendered === pdfPage.dataset.key`), 'Final zoom did not finish rendering');
+    // A resize can arrive while the zoom redraw is still debounced. It must
+    // resume rendering rather than leave the viewer in gesture mode forever.
+    await app.evaluate(`
+      window.beforeResizeKey = pdfPage.dataset.key;
+      pdfScroller.dispatchEvent(new WheelEvent('wheel', {
+        ctrlKey: true, deltaY: -10, clientX: center.x, clientY: center.y, cancelable: true,
+      }));
+      pdfScroller.style.width = '90%';
+    `);
+    await until(() => app.evaluate(`pdfPage.dataset.key !== beforeResizeKey && pdfPage.dataset.rendered === pdfPage.dataset.key`),
+      'Resizing during zoom stranded the PDF redraw');
     assert.equal(await app.evaluate('window.visualViewport.scale'), 1);
     assert.deepEqual(app.errors, []);
   } finally { await app.close(); }
