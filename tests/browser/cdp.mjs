@@ -21,7 +21,7 @@ export async function browserApp() {
       if (spawnError) throw spawnError;
       if (chrome.exitCode !== null) throw new Error('Chrome exited before starting');
       return fs.existsSync(portFile);
-    }, 'Chrome did not start; set CHROME_BIN to a Chrome/Chromium executable');
+    }, 'Chrome did not start; set CHROME_BIN to a Chrome/Chromium executable', 30000);
     const port = fs.readFileSync(portFile, 'utf8').split('\n')[0];
     const target = await (await fetch(`http://127.0.0.1:${port}/json/new?about:blank`, { method: 'PUT' })).json();
     ws = new WebSocket(target.webSocketDebuggerUrl);
