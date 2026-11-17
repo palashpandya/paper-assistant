@@ -352,6 +352,9 @@ export const PdfView = forwardRef<PdfHandle, Props>(function PdfView(
     const resize = new ResizeObserver(() => {
       clearTimeout(timer);
       if (zoomTimer.current) clearTimeout(zoomTimer.current);
+      // The resize layout now owns the redraw. Cancelling the zoom timer must
+      // also end gesture mode so that layout and visibility changes can render.
+      st.zooming = false;
       for (const task of st.renders.values()) task.cancel();
       timer = setTimeout(() => void layout(), 150);
     });
