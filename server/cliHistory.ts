@@ -23,18 +23,42 @@ export interface CliSession {
 
 const LABEL = { claude: 'Claude Code', codex: 'Codex' };
 
+function canonical(dir: string): string {
+  try { return fs.realpathSync(dir); } catch { return path.resolve(dir); }
+}
+
 /**
- * The paper folder and the folders around it up to the top of its git repository.
+ * The paper folder and the folders around it up to the top of its project.
  * Papers often sit inside a larger project, and sessions started from the project
  * folder are recorded against that folder rather than the paper's.
  */
-function scope(root: string): string[] {
-  const dirs = [root];
-  for (let dir = root; path.dirname(dir) !== dir; dir = path.dirname(dir)) {
+function enclosingFolders(root: string): string[] {
+  const dirs: string[] = [];
+  let projectDepth = 0;
+  let belowHome = true;
+  for (let dir = root; ; dir = path.dirname(dir)) {
+    dirs.push(dir);
     if (fs.existsSync(path.join(dir, '.git'))) return dirs;
-    dirs.push(path.dirname(dir));
+    if (dir === os.homedir()) belowHome = false;
+    // Some paper projects are not Git repositories. Their agent instructions
+    // identify the project, but home-wide instructions must not include siblings.
+    if (belowHome && !projectDepth && ['AGENTS.md', 'CLAUDE.md'].some((name) => fs.existsSync(path.join(dir, name)))) {
+      projectDepth = dirs.length;
+    }
+    if (path.dirname(dir) === dir) break;
   }
-  return [root]; // Not in a repository: looking further up would take in unrelated work.
+  return projectDepth ? dirs.slice(0, projectDepth) : [root];
+}
+
+function scope(root: string): string[] {
+  // Find the repository through the physical path: a symlink to the paper may
+  // live outside it. Keep lexical paths too, since the CLIs can record either.
+  const dirs = new Set(enclosingFolders(canonical(root)));
+  for (let dir = path.resolve(root); ; dir = path.dirname(dir)) {
+    if (dirs.has(canonical(dir))) dirs.add(dir);
+    if (path.dirname(dir) === dir) break;
+  }
+  return [...dirs];
 }
 
 /** The message as the user typed it, without what the app or the CLI wrapped around it. Empty for non-messages. */
@@ -173,6 +197,8 @@ function codexMessages(lines: any[], firstOnly = false): ChatMessage[] {
  */
 export function cliSessions(root: string, claudeConfig: string): CliSession[] {
   const dirs = scope(root);
+  const physicalDirs = new Set(dirs.map(canonical));
+  const physicalRoot = canonical(root);
   const found = new Map<string, CliSession>();
   const add = (agent: 'claude' | 'codex', sessionId: string | null, file: string, dir: string) => {
     try {
@@ -181,7 +207,7 @@ export function cliSessions(root: string, claudeConfig: string): CliSession[] {
       // A session continued from another folder is on record in both; the later copy is the fuller one.
       const other = found.get(sessionId);
       if (other && other.mtime >= mtime) return;
-      found.set(sessionId, { agent, sessionId, file, mtime, updatedAt: new Date(mtime).toISOString(), folder: dir === root ? '' : path.basename(dir) });
+      found.set(sessionId, { agent, sessionId, file, mtime, updatedAt: new Date(mtime).toISOString(), folder: canonical(dir) === physicalRoot ? '' : path.basename(dir) });
     } catch {
       // Removed meanwhile.
     }
@@ -194,7 +220,7 @@ export function cliSessions(root: string, claudeConfig: string): CliSession[] {
       // Claude Code has never been used in this folder.
     }
   }
-  for (const { file, cwd } of codexFiles()) if (dirs.includes(cwd)) add('codex', codexId(file), file, cwd);
+  for (const { file, cwd } of codexFiles()) if (physicalDirs.has(canonical(cwd))) add('codex', codexId(file), file, cwd);
   return [...found.values()].sort((a, b) => b.mtime - a.mtime);
 }
 
