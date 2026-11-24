@@ -1,6 +1,6 @@
-# CLAUDE.md
+# AGENTS.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to coding agents working in this repository.
 
 ## What this is
 
@@ -24,6 +24,19 @@ Users install the release tarball with `npm install -g ./paper-assistant-<versio
 The `katex` npm override makes the Markdown plugins use the app's patched KaTeX version instead of their older transitive copies. Keep the browser math-rendering test passing when updating it. Vite splits PDF.js, CodeMirror, KaTeX and other vendor code into separate chunks; do not hide bundle-size warnings by raising the warning threshold.
 
 `npm start` serves `dist/` and runs `dist-server/`, so rebuild after changes. `prepare` runs the build, so `npm install` and `npm pack` build too.
+
+## GitHub workflow
+
+The remote is `origin` (`palashpandya/paper-assistant`). The `prod` branch is protected: changes must go through a pull request, and the required **Build and test** status check must pass. Do not push changes directly to `prod` or bypass its protections.
+
+For a change intended for `prod`:
+
+1. Work on a descriptive topic branch based on the current `prod` branch, such as `fix/nested-project-history`. Check the working tree first and preserve unrelated user changes.
+2. Make the change, add meaningful regression coverage when appropriate, and update relevant documentation. Run `npm test`, `npm run typecheck`, and `npm run build`; also run `npm run test:browser` for changes affecting browser behavior.
+3. When asked to push, commit the related files, push the topic branch to `origin`, and open a pull request targeting `prod`. Include the concrete problem, resulting behavior, and validation in the PR description.
+4. Report the PR link and any pending or failing checks. A pushed branch or open PR is not a merged change; merge only when requested and after required checks pass.
+
+`.github/workflows/ci.yml` defines **Build and test** on Node 24. It runs `npm ci`, typechecking, unit and server tests, browser tests, release packaging, and a smoke test of the globally installed tarball. It uploads the release tarball as an artifact. CI runs for pull requests targeting `main` or `prod`, pushes to either branch, and manual dispatches.
 
 ## Server (`server/`)
 
